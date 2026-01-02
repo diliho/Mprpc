@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package fixbug;
+
+//选择生成service服务类和rpc方法
+option cc_generic_services =true;
+//封装错误类型
+message ResponseCode
+{   int32 errorcode =1;
+    bytes errormsg=2;
+    
+}
+//登录请求类型
+message LoginRequest {
+    bytes name = 1;
+    bytes pwd = 2;
+}
+//登录响应类型
+message LoginResponse {
+    ResponseCode code =1;
+    bool success = 2;
+}
+
+//好友列表请求
+message GetFriendListRequest {
+    int32 userid = 1;
+}
+
+//用户列表
+message User
+{  bytes name =1;
+    int32 age=2;
+    enum Sex
+    {
+        MAN =0;
+        WOMAN =1;
+
+    }
+    Sex sex =3;
+}
+
+//好友列表返回
+message GetFriendListResponse {
+    ResponseCode code =1;
+    repeated User friends = 2;//定义一个列表类型
+}
+
+//定义rpc方法
+service UserServiceRpc {
+    rpc Login(LoginRequest) returns (LoginResponse);
+    rpc GetFriendList(GetFriendListRequest) returns (GetFriendListResponse);
+}
