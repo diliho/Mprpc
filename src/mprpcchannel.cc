@@ -10,7 +10,15 @@
 #include <iostream>
 #include"mprpccontroller.h"
 
-
+/*
+MprpcChannel::CallMethod 是客户端RPC调用的核心实现，它负责：
+- 从方法描述符中提取服务名和方法名
+- 序列化请求参数
+- 构造RPC请求头
+- 通过TCP网络发送请求到服务器
+- 接收服务器响应
+- 解析响应结果到响应对象
+*/
 
 
 void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
