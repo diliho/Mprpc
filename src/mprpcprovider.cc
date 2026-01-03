@@ -52,20 +52,19 @@ void RpcProvider::Run()
     server.setMessageCallback(std::bind(&RpcProvider::OnMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
     // 设置muduo库的线程数量
     server.setThreadNum(4);
-     
-    ZKClient zkclient;
-    //往zk注册服务和方法
-    zkclient.Start();
+    
+    // 使用成员变量的ZKClient
+    m_zkclient.Start();
     for(auto &sp:m_serviceMap)
     {
         std::string service_path="/"+sp.first;
-        zkclient.Create(service_path.c_str(),nullptr,0);
+        m_zkclient.Create(service_path.c_str(),nullptr,0);
         for(auto &mp:sp.second.m_methodMap)
         {
             std::string method_path=service_path+"/"+mp.first;
             char method_path_data[128]={0};
             sprintf(method_path_data,"%s:%d",ip.c_str(),port);
-            zkclient.Create(method_path.c_str(),method_path_data,strlen(method_path_data),ZOO_EPHEMERAL);
+            m_zkclient.Create(method_path.c_str(),method_path_data,strlen(method_path_data),ZOO_EPHEMERAL);
         }
     }
     

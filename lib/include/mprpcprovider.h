@@ -6,6 +6,7 @@
 #include <muduo/net/InetAddress.h>
 #include <muduo/net/TcpConnection.h>
 #include <unordered_map>
+#include "zookeeperutil.h" 
 
 class RpcProvider
 {
@@ -18,6 +19,9 @@ public:
 private:
     // 组合muduo库的事件循环对象
     muduo::net::EventLoop m_eventloop;
+    
+    // 添加ZKClient成员变量
+    ZKClient m_zkclient;
 
     struct ServiceInfo
     {

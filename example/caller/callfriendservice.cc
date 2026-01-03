@@ -8,7 +8,9 @@ int main(int argc,char **argv)
 
    MprpcApplication::Init(argc,argv);
    
-   fixbug::FriendServiceRpc_Stub stub(new MprpcChannel());
+   // 将MprpcChannel对象放在栈上创建
+   MprpcChannel channel;
+   fixbug::FriendServiceRpc_Stub stub(&channel);
    
    fixbug::FriendlistRequest request;
    request.set_userid(1000);
@@ -58,7 +60,7 @@ int main(int argc,char **argv)
    }
    }
 
-  
+
    return 0;
 
 }

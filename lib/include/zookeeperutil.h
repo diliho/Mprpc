@@ -17,4 +17,6 @@ public:
 private:
     // zk的客户端句柄
     zhandle_t* m_zhandle;
+    // 添加信号量成员变量
+    sem_t m_sem;
 };

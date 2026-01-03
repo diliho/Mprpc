@@ -10,6 +10,13 @@
 #include <iostream>
 #include"mprpccontroller.h"
 
+// 构造函数：初始化ZKClient
+MprpcChannel::MprpcChannel()
+{
+    // 只初始化一次ZKClient
+    m_zkclient.Start();
+}
+
 /*
 MprpcChannel::CallMethod 是客户端RPC调用的核心实现，它负责：
 - 从方法描述符中提取服务名和方法名
@@ -19,7 +26,6 @@ MprpcChannel::CallMethod 是客户端RPC调用的核心实现，它负责：
 - 接收服务器响应
 - 解析响应结果到响应对象
 */
-
 
 void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
     google::protobuf::RpcController* controller,
@@ -85,10 +91,8 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
   
     LOG_INFO("method_name: %s", method_name.c_str());
  
-
    
-
-    
+   
     
     // 使用tcp网络编程，完成rpc方法的远程调用
     int clientfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -100,20 +104,15 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
         return;
     }
     
-    // //读取配置文件prcserver的消息
-    // std::string ip=MprpcApplication::GetInstance().GetConfig().Load("rpcserverip");
-    // uint16_t port=atoi(MprpcApplication::GetInstance().GetConfig().Load("rpcserverport").c_str());
-
-    //通过zookeeper获取rpcserver的消息
-    ZKClient zkclient;
-    zkclient.Start();
+    // 通过zookeeper获取rpcserver的消息
+    // 复用成员变量m_zkclient，不再创建新的ZKClient实例
     // /UserServicePrc/Login
     std::string method_path="/"+service_name+"/"+method_name;
     /*
         Getdata返回方法的ip和端口
         127.0.0.1:8000
     */
-    std::string host_data=zkclient.GetData(method_path.c_str());
+    std::string host_data=m_zkclient.GetData(method_path.c_str());
     if(host_data=="")
     {
         controller->SetFailed(method_path+" is not exist!");
@@ -136,7 +135,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
     
     // 连接服务器
     if (connect(clientfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1)
-    {   
+    {
         close(clientfd);
         char errtxt[512] = {0};
         sprintf(errtxt, "connect error! errno:%d", errno);

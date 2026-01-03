@@ -14,13 +14,18 @@ void global_watcher(zhandle_t*zh,int type,int state,const char*path,void *watche
     }
 }
 
-ZKClient::ZKClient():m_zhandle(nullptr){}
+ZKClient::ZKClient():m_zhandle(nullptr)
+{
+    sem_init(&m_sem, 0, 0);
+}
+
 ZKClient::~ZKClient()
 {
     if(m_zhandle!=nullptr)
     {
         zookeeper_close(m_zhandle);
     }
+    sem_destroy(&m_sem);
 }
 
 void ZKClient::Start()
@@ -35,12 +40,10 @@ void ZKClient::Start()
         std::cout<<"zookeeper_init error"<<std::endl;
         exit(EXIT_FAILURE);
     }
-    sem_t sem;
-    sem_init(&sem,0,0);
-    zoo_set_context(m_zhandle,&sem);
-    sem_wait(&sem);
+    
+    zoo_set_context(m_zhandle,&m_sem);
+    sem_wait(&m_sem);
     std::cout<<"zookeeper_init success"<<std::endl;
-
 }
 void ZKClient::Create(const char* path,const char* data,int datalen,int state)
 {

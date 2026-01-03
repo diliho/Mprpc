@@ -8,8 +8,8 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/dili/project/mprpc/example/friend.pb.cc" "example/caller/CMakeFiles/consumer.dir/__/friend.pb.cc.o" "gcc" "example/caller/CMakeFiles/consumer.dir/__/friend.pb.cc.o.d"
-  "/home/dili/project/mprpc/example/caller/callfriendservice.cc" "example/caller/CMakeFiles/consumer.dir/callfriendservice.cc.o" "gcc" "example/caller/CMakeFiles/consumer.dir/callfriendservice.cc.o.d"
+  "/home/dili/project/mprpc/example/user.pb.cc" "example/caller/CMakeFiles/consumer.dir/__/user.pb.cc.o" "gcc" "example/caller/CMakeFiles/consumer.dir/__/user.pb.cc.o.d"
+  "/home/dili/project/mprpc/example/caller/calluserservice.cc" "example/caller/CMakeFiles/consumer.dir/calluserservice.cc.o" "gcc" "example/caller/CMakeFiles/consumer.dir/calluserservice.cc.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

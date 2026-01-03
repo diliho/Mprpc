@@ -4,13 +4,15 @@
 #include"mprpcchannel.h"
 
 //通过框架调用rpc服务
-int main(int argc,char **argv)
+int main(int argc, char **argv)
 {
- 
-   MprpcApplication::Init(argc,argv);
-   //通过service的stub代理
-   fixbug::UserServiceRpc_Stub stub(new MprpcChannel());
-
+    // 初始化框架
+    MprpcApplication::Init(argc, argv);
+    
+    // 将MprpcChannel对象放在栈上创建
+    MprpcChannel channel;
+    fixbug::UserServiceRpc_Stub stub(&channel);
+    
   /*
   调用远程login
   */
