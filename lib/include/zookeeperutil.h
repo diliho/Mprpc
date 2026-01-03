@@ -19,4 +19,7 @@ private:
     zhandle_t* m_zhandle;
     // 添加信号量成员变量
     sem_t m_sem;
+    
+    // 递归创建父节点（私有方法）
+    void CreateParentNodes(const char* path);
 };

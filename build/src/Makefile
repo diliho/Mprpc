@@ -274,6 +274,30 @@ mprpcprovider.cc.s:
 	cd /home/dili/project/mprpc/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/mprpc.dir/build.make src/CMakeFiles/mprpc.dir/mprpcprovider.cc.s
 .PHONY : mprpcprovider.cc.s
 
+rpcerror.o: rpcerror.cc.o
+.PHONY : rpcerror.o
+
+# target to build an object file
+rpcerror.cc.o:
+	cd /home/dili/project/mprpc/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/mprpc.dir/build.make src/CMakeFiles/mprpc.dir/rpcerror.cc.o
+.PHONY : rpcerror.cc.o
+
+rpcerror.i: rpcerror.cc.i
+.PHONY : rpcerror.i
+
+# target to preprocess a source file
+rpcerror.cc.i:
+	cd /home/dili/project/mprpc/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/mprpc.dir/build.make src/CMakeFiles/mprpc.dir/rpcerror.cc.i
+.PHONY : rpcerror.cc.i
+
+rpcerror.s: rpcerror.cc.s
+.PHONY : rpcerror.s
+
+# target to generate assembly for a file
+rpcerror.cc.s:
+	cd /home/dili/project/mprpc/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/mprpc.dir/build.make src/CMakeFiles/mprpc.dir/rpcerror.cc.s
+.PHONY : rpcerror.cc.s
+
 rpcheader.pb.o: rpcheader.pb.cc.o
 .PHONY : rpcheader.pb.o
 
@@ -349,6 +373,9 @@ help:
 	@echo "... mprpcprovider.o"
 	@echo "... mprpcprovider.i"
 	@echo "... mprpcprovider.s"
+	@echo "... rpcerror.o"
+	@echo "... rpcerror.i"
+	@echo "... rpcerror.s"
 	@echo "... rpcheader.pb.o"
 	@echo "... rpcheader.pb.i"
 	@echo "... rpcheader.pb.s"

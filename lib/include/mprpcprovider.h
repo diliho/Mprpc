@@ -6,7 +6,8 @@
 #include <muduo/net/InetAddress.h>
 #include <muduo/net/TcpConnection.h>
 #include <unordered_map>
-#include "zookeeperutil.h" 
+#include "zookeeperutil.h"
+#include "mprpccontroller.h" 
 
 class RpcProvider
 {
@@ -15,6 +16,11 @@ public:
     void NotifyService(google::protobuf::Service *service);
     // 启动rpc服务节点，开始提供rpc远程网络调用服务
     void Run();
+    
+    // 将SendRpcResponse方法改为public，以便在OnRpcResponse中调用
+    void SendRpcResponse(const muduo::net::TcpConnectionPtr& conn, 
+                        google::protobuf::Message* response, 
+                        MprpcController* controller);
 
 private:
     // 组合muduo库的事件循环对象
@@ -23,6 +29,9 @@ private:
     // 添加ZKClient成员变量
     ZKClient m_zkclient;
 
+       /*
+       {service_name,service,{method_name,pmethodDesc}}
+       */
     struct ServiceInfo
     {
         google::protobuf::Service *m_service; // 存储服务对象
@@ -38,6 +47,4 @@ private:
     void OnConnection(const muduo::net::TcpConnectionPtr &);
     // 已建立连接用户的读写事件回调
     void OnMessage(const muduo::net::TcpConnectionPtr &conn, muduo::net::Buffer *, muduo::Timestamp);
-    
-    void SendRpcResponse(const muduo::net::TcpConnectionPtr&,google::protobuf::Message*);
 };

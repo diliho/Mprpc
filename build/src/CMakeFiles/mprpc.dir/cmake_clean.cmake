@@ -13,6 +13,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/mprpc.dir/mprpccontroller.cc.o.d"
   "CMakeFiles/mprpc.dir/mprpcprovider.cc.o"
   "CMakeFiles/mprpc.dir/mprpcprovider.cc.o.d"
+  "CMakeFiles/mprpc.dir/rpcerror.cc.o"
+  "CMakeFiles/mprpc.dir/rpcerror.cc.o.d"
   "CMakeFiles/mprpc.dir/rpcheader.pb.cc.o"
   "CMakeFiles/mprpc.dir/rpcheader.pb.cc.o.d"
   "CMakeFiles/mprpc.dir/zookeeperutil.cc.o"

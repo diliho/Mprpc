@@ -1,6 +1,15 @@
-# 搜索当前目录和include目录的源文件
-aux_source_directory(. SRC_LIST)
-aux_source_directory(./include SRC_LIST)
+# 显式列出所有源文件
+set(SRC_LIST
+    Logger.cc
+    mprpcapplication.cc
+    mprpcchannel.cc
+    mprpcconfig.cc
+    mprpccontroller.cc
+    mprpcprovider.cc
+    rpcerror.cc
+    rpcheader.pb.cc
+    zookeeperutil.cc
+)
 
 # 添加头文件搜索路径
 include_directories(./include)

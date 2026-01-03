@@ -1,4 +1,6 @@
 #include "mprpcprovider.h"
+#include "mprpccontroller.h"
+#include "rpcerror.h" // 添加错误码头文件
 #include <string>
 #include "mprpcapplication.h"
 #include <functional>
@@ -28,7 +30,7 @@ void RpcProvider::NotifyService(google::protobuf::Service *service)
         const google::protobuf::MethodDescriptor *pmethodDesc = pserviceDesc->method(i);
         std::string method_name = pmethodDesc->name();
        
-        LOG_INFO("method_name:%s", method_name.c_str());
+        LOG_INFO("method_name:%s", method_name.c_str());      
         // 存储方法名称和方法描述信息的映射
         service_info.m_methodMap.insert({method_name, pmethodDesc});
     }
@@ -36,7 +38,7 @@ void RpcProvider::NotifyService(google::protobuf::Service *service)
     m_serviceMap.insert({service_name, service_info});
 }
 
-// 将函数实现为RpcProvider类的成员函数
+// 启动rpc服务节点，开始提供rpc远程网络调用服务
 void RpcProvider::Run()
 {
     std::string str_ip = "rpcserverip";
@@ -55,6 +57,7 @@ void RpcProvider::Run()
     
     // 使用成员变量的ZKClient
     m_zkclient.Start();
+    // 注册服务节点到zookeeper上
     for(auto &sp:m_serviceMap)
     {
         std::string service_path="/"+sp.first;
@@ -82,7 +85,6 @@ void RpcProvider::OnConnection(const muduo::net::TcpConnectionPtr &conn)
         conn->shutdown();
     }
 }
-
 /*
     定义通信协议
     header_size(4B) + header_str + args
@@ -91,6 +93,32 @@ void RpcProvider::OnConnection(const muduo::net::TcpConnectionPtr &conn)
     header_str表示消息头部的内容，
     args表示消息体的内容
 */
+
+
+// 辅助结构体，用于存储回调参数
+struct RpcResponseArgs {
+    RpcProvider* provider;
+    muduo::net::TcpConnectionPtr conn;
+    google::protobuf::Message* response;
+    MprpcController* controller;
+};
+
+// 回调函数 - 现在使用void*参数并进行类型转换
+void OnRpcResponse(void* args) {
+    // 将void*转换为RpcResponseArgs*
+    RpcResponseArgs* responseArgs = static_cast<RpcResponseArgs*>(args);
+    
+    // 调用SendRpcResponse方法
+    responseArgs->provider->SendRpcResponse(
+        responseArgs->conn,
+        responseArgs->response,
+        responseArgs->controller
+    );
+    
+    // 释放参数结构体
+    delete responseArgs;
+}
+
 void RpcProvider::OnMessage(const muduo::net::TcpConnectionPtr &conn,
                             muduo::net::Buffer *buffer,
                             muduo::Timestamp)
@@ -117,75 +145,134 @@ void RpcProvider::OnMessage(const muduo::net::TcpConnectionPtr &conn,
     }
     else
     {
-        
-
-        LOG_INFO("rpc_header_str parse error!");
+    
+        // 创建错误码和错误对象
+        auto error_code = RpcErrorUtil::createFrameError(FrameErrorCode::DESERIALIZE_FAILED, 0, "MPRPC");
+        RpcError error(error_code, "rpc_header_str parse error!");
+        // 可以考虑发送错误响应给客户端
         return;
     }
+    
     // 获取rpc方法参数的字符流
     std::string args_str = recv_buf.substr(4 + header_size, args_size);
 
     //获取rpc服务和方法(字符串)
-    auto it=m_serviceMap.find(service_name);
-    if(it==m_serviceMap.end())
+    auto it = m_serviceMap.find(service_name);
+    if (it == m_serviceMap.end())
     {
-       
-        LOG_INFO("service_name:%s not find",service_name.c_str());
+        // 使用新的错误码体系：服务不存在
+        LOG_ERROR("service_name:%s not find", service_name.c_str());
+        auto error_code = RpcErrorUtil::createFrameError(FrameErrorCode::SERVICE_DISCOVERY_FAILED, 0, "MPRPC");
+        RpcError error(error_code, "service_name:" + service_name + " not found");
+        // 可以考虑发送错误响应给客户端
         return;
     }
-    auto mit=it->second.m_methodMap.find(method_name);
-    if(mit==it->second.m_methodMap.end())
+    
+    auto mit = it->second.m_methodMap.find(method_name);
+    if (mit == it->second.m_methodMap.end())
     {
-        
-        LOG_INFO("method_name:%s not find",method_name.c_str());
-        return ;
+        // 使用新的错误码体系：方法不存在
+        LOG_ERROR("method_name:%s not find", method_name.c_str());
+        auto error_code = RpcErrorUtil::createFrameError(FrameErrorCode::SERVICE_DISCOVERY_FAILED, 0, "MPRPC");
+        RpcError error(error_code, "method_name:" + method_name + " not found");
+        // 可以考虑发送错误响应给客户端
+        return;
     }
+    
     //获取service对象和方法
-    google::protobuf::Service*service=it->second.m_service;
-    const google::protobuf::MethodDescriptor*method=mit->second;
+    google::protobuf::Service* service = it->second.m_service;
+    const google::protobuf::MethodDescriptor* method = mit->second;
     
-    /*生成rpc方法调用的response和 request
-     void Login(::google::protobuf::RpcController *controller,
-               const ::fixbug::LoginRequest *request,
-               ::fixbug::LoginResponse *response,
-               ::google::protobuf::Closure *done) override
-    */
-    google::protobuf::Message*request=service->GetRequestPrototype(method).New();
-    if(!request->ParseFromString(args_str))
+    // 创建控制器对象，用于传递错误信息
+    MprpcController* controller = new MprpcController();
+    
+    //生成rpc方法调用的response和 request
+    google::protobuf::Message* request = service->GetRequestPrototype(method).New();
+    if (!request->ParseFromString(args_str))
     {
-        LOG_ERROR("request parse error!"); 
-        return ;
+        // 使用新的错误码体系：请求参数解析失败
+        LOG_ERROR("request parse error!");
+        auto error_code = RpcErrorUtil::createFrameError(FrameErrorCode::DESERIALIZE_FAILED, 0, "MPRPC");
+        RpcError error(error_code, "request parse error!");
+        controller->SetFailed(error);
+        // 可以考虑发送错误响应给客户端
+        delete controller;
+        delete request;
+        return;
     }
-    google::protobuf::Message*response=service->GetResponsePrototype(method).New();
-
-    //绑定一个Closure的回调函数
-    google::protobuf::Closure*done=
-    google::protobuf::NewCallback<RpcProvider,const::muduo::net::TcpConnectionPtr&,google::protobuf::Message*>
-                                (this,&RpcProvider::SendRpcResponse,conn,response);
-
-
     
+    google::protobuf::Message* response = service->GetResponsePrototype(method).New();
+
+    // 创建辅助结构体并设置参数
+    RpcResponseArgs* args = new RpcResponseArgs();
+    args->provider = this;
+    args->conn = conn;
+    args->response = response;
+    args->controller = controller;
+
+    // 创建回调 - 使用static_cast将args转换为void*
+    google::protobuf::Closure* done = google::protobuf::NewPermanentCallback(
+        OnRpcResponse, 
+        static_cast<void*>(args)
+    );
+
     //调用当前节点发布的方法
-    service->CallMethod(method,nullptr,request,response,done);
+    service->CallMethod(method, controller, request, response, done);
+    
+    // 释放request，response和controller将在SendRpcResponse中释放
+    delete request;
 }
 
-    //Closure的回调 序列化rpc响应
-    void RpcProvider::SendRpcResponse(const muduo::net::TcpConnectionPtr&conn,google::protobuf::Message*response)
-    {
-        std::string response_str;
-        //response序列化
-        if(response->SerializeToString(&response_str))
+// 修改SendRpcResponse方法，添加controller参数
+void RpcProvider::SendRpcResponse(const muduo::net::TcpConnectionPtr& conn, 
+                                 google::protobuf::Message* response, 
+                                 MprpcController* controller)
+{
+    std::string response_str;
+    std::string send_rpc_str;
+    
+    // 如果有错误，我们应该在响应中包含错误信息
+    if (controller->Failed()) {
+        LOG_ERROR("RPC call failed: %s", controller->ErrorText().c_str());
+    } else {
+        // response序列化
+        if (response->SerializeToString(&response_str))
         {
-            //通过muduo返回rpc方法的结果
-            conn->send(response_str);
+            // 构造RPC响应头
+            mprpc::RpcHeader rpcHeader;
+            // 注意：这里的service_name和method_name可以为空，或者根据实际情况设置
+            rpcHeader.set_service_name("");
+            rpcHeader.set_method_name("");
+            rpcHeader.set_args_size(response_str.size());
+            
+            std::string rpc_header_str;
+            if (rpcHeader.SerializeToString(&rpc_header_str)) {
+                // 组织发送的数据：header_size + header_str + response_str
+                uint32_t header_size = rpc_header_str.size();
+                send_rpc_str.insert(0, std::string((char*)&header_size, 4));
+                send_rpc_str += rpc_header_str;
+                send_rpc_str += response_str;
+                
+                //通过muduo返回rpc方法的结果
+                conn->send(send_rpc_str);
+            } else {
+                LOG_ERROR("serialize rpc header error!");
+            }
         }
-        else{
-           
-            LOG_ERROR("serialize  response error!"); 
+        else
+        {
+            // 使用新的错误码体系：响应序列化失败
+            LOG_ERROR("serialize response error!");
+            auto error_code = RpcErrorUtil::createFrameError(FrameErrorCode::SERIALIZE_FAILED, 0, "MPRPC");
+            RpcError error(error_code, "serialize response error!");
         }
-        conn->shutdown();
-        
     }
+    
+    // 释放资源
+    conn->shutdown();
+    delete response;
+    delete controller;
+}
 
 
 

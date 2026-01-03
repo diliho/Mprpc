@@ -153,10 +153,24 @@ src/CMakeFiles/mprpc.dir/mprpcprovider.cc.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/mprpc.dir/mprpcprovider.cc.s"
 	cd /home/dili/project/mprpc/build/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/dili/project/mprpc/src/mprpcprovider.cc -o CMakeFiles/mprpc.dir/mprpcprovider.cc.s
 
+src/CMakeFiles/mprpc.dir/rpcerror.cc.o: src/CMakeFiles/mprpc.dir/flags.make
+src/CMakeFiles/mprpc.dir/rpcerror.cc.o: /home/dili/project/mprpc/src/rpcerror.cc
+src/CMakeFiles/mprpc.dir/rpcerror.cc.o: src/CMakeFiles/mprpc.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object src/CMakeFiles/mprpc.dir/rpcerror.cc.o"
+	cd /home/dili/project/mprpc/build/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/mprpc.dir/rpcerror.cc.o -MF CMakeFiles/mprpc.dir/rpcerror.cc.o.d -o CMakeFiles/mprpc.dir/rpcerror.cc.o -c /home/dili/project/mprpc/src/rpcerror.cc
+
+src/CMakeFiles/mprpc.dir/rpcerror.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/mprpc.dir/rpcerror.cc.i"
+	cd /home/dili/project/mprpc/build/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/dili/project/mprpc/src/rpcerror.cc > CMakeFiles/mprpc.dir/rpcerror.cc.i
+
+src/CMakeFiles/mprpc.dir/rpcerror.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/mprpc.dir/rpcerror.cc.s"
+	cd /home/dili/project/mprpc/build/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/dili/project/mprpc/src/rpcerror.cc -o CMakeFiles/mprpc.dir/rpcerror.cc.s
+
 src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o: src/CMakeFiles/mprpc.dir/flags.make
 src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o: /home/dili/project/mprpc/src/rpcheader.pb.cc
 src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o: src/CMakeFiles/mprpc.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o"
 	cd /home/dili/project/mprpc/build/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o -MF CMakeFiles/mprpc.dir/rpcheader.pb.cc.o.d -o CMakeFiles/mprpc.dir/rpcheader.pb.cc.o -c /home/dili/project/mprpc/src/rpcheader.pb.cc
 
 src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.i: cmake_force
@@ -170,7 +184,7 @@ src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.s: cmake_force
 src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o: src/CMakeFiles/mprpc.dir/flags.make
 src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o: /home/dili/project/mprpc/src/zookeeperutil.cc
 src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o: src/CMakeFiles/mprpc.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o"
 	cd /home/dili/project/mprpc/build/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o -MF CMakeFiles/mprpc.dir/zookeeperutil.cc.o.d -o CMakeFiles/mprpc.dir/zookeeperutil.cc.o -c /home/dili/project/mprpc/src/zookeeperutil.cc
 
 src/CMakeFiles/mprpc.dir/zookeeperutil.cc.i: cmake_force
@@ -189,6 +203,7 @@ mprpc_OBJECTS = \
 "CMakeFiles/mprpc.dir/mprpcconfig.cc.o" \
 "CMakeFiles/mprpc.dir/mprpccontroller.cc.o" \
 "CMakeFiles/mprpc.dir/mprpcprovider.cc.o" \
+"CMakeFiles/mprpc.dir/rpcerror.cc.o" \
 "CMakeFiles/mprpc.dir/rpcheader.pb.cc.o" \
 "CMakeFiles/mprpc.dir/zookeeperutil.cc.o"
 
@@ -201,11 +216,12 @@ mprpc_EXTERNAL_OBJECTS =
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/mprpcconfig.cc.o
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/mprpccontroller.cc.o
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/mprpcprovider.cc.o
+/home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/rpcerror.cc.o
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/rpcheader.pb.cc.o
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/zookeeperutil.cc.o
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/build.make
 /home/dili/project/mprpc/lib/libmprpc.a: src/CMakeFiles/mprpc.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Linking CXX static library /home/dili/project/mprpc/lib/libmprpc.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/dili/project/mprpc/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Linking CXX static library /home/dili/project/mprpc/lib/libmprpc.a"
 	cd /home/dili/project/mprpc/build/src && $(CMAKE_COMMAND) -P CMakeFiles/mprpc.dir/cmake_clean_target.cmake
 	cd /home/dili/project/mprpc/build/src && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/mprpc.dir/link.txt --verbose=$(VERBOSE)
 
