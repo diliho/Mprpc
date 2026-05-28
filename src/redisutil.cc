@@ -254,6 +254,25 @@ bool RedisClient::HSet(const std::string& key, const std::string& field, const s
     return ok;
 }
 
+bool RedisClient::HMSet(const std::string& key, const std::unordered_map<std::string, std::string>& fields)
+{
+    if (fields.empty()) return true;
+    redisContext* ctx = getContext();
+    if (!ctx || ctx->err) return false;
+
+    std::string cmd = "HMSET " + key;
+    for (auto& kv : fields)
+    {
+        cmd += " " + kv.first + " " + kv.second;
+    }
+
+    redisReply* reply = (redisReply*)redisCommand(ctx, cmd.c_str());
+    if (!reply) return false;
+    bool ok = (reply->type != REDIS_REPLY_ERROR);
+    freeReplyObject(reply);
+    return ok;
+}
+
 std::string RedisClient::HGet(const std::string& key, const std::string& field)
 {
     redisContext* ctx = getContext();

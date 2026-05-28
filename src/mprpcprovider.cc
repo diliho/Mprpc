@@ -124,8 +124,11 @@ void RpcProvider::Run()
             std::string enable_metrics = MprpcApplication::GetConfig().Load("metricsenable");
             if (enable_metrics.empty() || enable_metrics == "true")
             {
-                m_metrics = std::make_unique<MetricsCollector>(m_redis);
-                LOG_INFO("MetricsCollector initialized");
+                int ttl = 3600;
+                std::string ttl_str = MprpcApplication::GetConfig().Load("metricsttl");
+                if (!ttl_str.empty()) ttl = std::stoi(ttl_str);
+                m_metrics = std::make_unique<MetricsCollector>(m_redis, ttl);
+                LOG_INFO("MetricsCollector initialized (ttl=%d)", ttl);
             }
         }
         else
@@ -188,7 +191,8 @@ void OnRpcResponse(void* args) {
             responseArgs->service_name,
             responseArgs->method_name,
             latency,
-            is_error);
+            is_error,
+            false);
     }
     delete responseArgs;
 }

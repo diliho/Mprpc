@@ -36,6 +36,7 @@ public:
     int64_t Decr(const std::string& key);
 
     bool HSet(const std::string& key, const std::string& field, const std::string& value);
+    bool HMSet(const std::string& key, const std::unordered_map<std::string, std::string>& fields);
     std::string HGet(const std::string& key, const std::string& field);
     bool HDel(const std::string& key, const std::string& field);
     int64_t HLen(const std::string& key);

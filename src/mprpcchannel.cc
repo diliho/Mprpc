@@ -188,8 +188,11 @@ MprpcChannel::MprpcChannel() : m_zk_available(true)
             std::string enable_metrics = config.Load("metricsenable");
             if (enable_metrics.empty() || enable_metrics == "true")
             {
-                m_metrics = std::make_unique<MetricsCollector>(m_redis);
-                LOG_INFO("MprpcChannel: MetricsCollector initialized");
+                int ttl = 3600;
+                std::string ttl_str = config.Load("metricsttl");
+                if (!ttl_str.empty()) ttl = std::stoi(ttl_str);
+                m_metrics = std::make_unique<MetricsCollector>(m_redis, ttl);
+                LOG_INFO("MprpcChannel: MetricsCollector initialized (ttl=%d)", ttl);
             }
 
             std::string enable_consumer = config.Load("ratelimitenableconsumer");
@@ -294,6 +297,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
 
     // ── Retry loop ──
     std::string last_error;
+    bool is_timeout = false;
 
     for (int attempt = 0; attempt < MAX_RETRY; ++attempt)
     {
@@ -303,6 +307,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
         if (elapsed > TOTAL_TIMEOUT_MS)
         {
             last_error = "RPC call timeout (overall)";
+            is_timeout = true;
             break;
         }
 
@@ -410,7 +415,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
             close(clientfd);
             m_persistent_fds.erase(conn_key);
             if (recv_size == 0) last_error = "connection closed by server";
-            else if (errno == EAGAIN || errno == EWOULDBLOCK) last_error = "RPC recv timeout (5s)";
+            else if (errno == EAGAIN || errno == EWOULDBLOCK) { last_error = "RPC recv timeout (5s)"; is_timeout = true; }
             else { char errtxt[512]; sprintf(errtxt, "recv error! errno:%d", errno);
                    auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
                    static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
@@ -454,7 +459,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
             auto end = std::chrono::steady_clock::now();
             int64_t latency = std::chrono::duration_cast<std::chrono::milliseconds>(
                 end - call_start).count();
-            m_metrics->recordCall(service_name, method_name, latency, false);
+            m_metrics->recordCall(service_name, method_name, latency, false, false);
         }
         return;
     }
@@ -469,7 +474,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
             auto end = std::chrono::steady_clock::now();
             int64_t latency = std::chrono::duration_cast<std::chrono::milliseconds>(
                 end - call_start).count();
-            m_metrics->recordCall(service_name, method_name, latency, true);
+            m_metrics->recordCall(service_name, method_name, latency, true, is_timeout);
         }
     }
 }

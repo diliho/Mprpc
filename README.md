@@ -67,7 +67,7 @@ MPRPC/
 │   ├── provider              # RPC 服务端（UserService + FriendService）
 │   ├── consumer              # RPC 客户端（UserService::Login）
 │   ├── consumer_friend       # RPC 客户端（FriendService::GetFriendlist）
-│   └── qps_test              # 多线程 QPS 压测工具（8 线程，5 秒）
+│   └── qps_test              # 多维度 QPS 压测工具（多并发等级、全链路延迟分布）
 │
 ├── lib/                      # 静态库与头文件
 │   ├── include/              # 公开头文件
@@ -205,8 +205,57 @@ RateLimiter created
 # 输出: friend1 friend2 friend3
 
 ./bin/qps_test -i test.conf
-# 输出: QPS: xxx, avg latency: xxx ms
 ```
+
+---
+
+## QPS 性能压测
+
+`qps_test` 是多维度 RPC 性能压测工具，支持不同并发等级、多种 RPC 方法，输出完整延迟分布（P50/P95/P99）。
+
+### 基本用法
+
+```bash
+./bin/qps_test -i test.conf
+```
+
+### 命令行参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `-i <file>` | 必填 | 框架配置文件路径 |
+| `-w <n>` | 50 | 预热请求数（每个线程独立预热，用于建立 TCP 连接和 ZK 缓存） |
+| `-d <n>` | 5 | 每轮测试持续时间（秒） |
+| `-c <n1,n2,...>` | 1,2,4,8,16 | 并发等级列表（逗号分隔），程序自动测试每个等级 |
+| `-m <method>` | login | RPC 方法名，可选 `login` 或 `register` |
+| `-q` | - | 安静模式，仅输出最终汇总 |
+
+### 使用示例
+
+```bash
+# 默认压测：测试 login 方法，并发 1/2/4/8/16，每轮 5 秒
+./bin/qps_test -i test.conf
+
+# 测试 Register 方法，每轮 10 秒
+./bin/qps_test -i test.conf -m register -d 10
+
+# 自定义并发等级，预热 100 次
+./bin/qps_test -i test.conf -c 1,4,16,32,64 -w 100
+
+# 安静模式：只看最终结果汇总
+./bin/qps_test -i test.conf -q
+```
+
+
+
+
+### 测试原理
+
+1. 每个测试线程创建独立的 `MprpcChannel`（框架非线程安全，Channel 间隔离）
+2. 预热阶段：发送 `-w` 次请求，建立 TCP 长连接 + 填充 ZK 地址缓存
+3. 测试阶段：持续发送请求，记录每次调用的精确耗时（微秒级）
+4. 每轮结束后，合并所有线程的延迟数据，排序后计算百分位值
+5. 自动从低并发到高并发依次执行，观察系统吞吐量扩展曲线
 
 ---
 
@@ -281,21 +330,45 @@ Provider 收到 SIGINT 后：移除 ZK 临时注册节点 → 停止 Muduo Event
 
 ## 监控指标
 
-通过 Redis 实时采集，键模式：`mprpc:metrics:{method}:{type}:{YYYYMMDD-HHMM}`
+通过 **Redis Hash** 按分钟聚合存储，后台线程异步批量写入，零阻塞 RPC 主流程。
 
-| 指标 | Redis 数据结构 | 采集方式 |
-|------|---------------|---------|
-| 调用量 | INCR | 每次方法调用 +1 |
-| 错误数 | INCR | 每次调用失败 +1 |
-| P99 延迟 | ZSet | 10% 采样，保留最近 1000 条 |
-| 限流拦截数 | INCR | 每次被限流 +1 |
+### 键格式
 
-查看监控数据：
+```
+mprpc:metrics:{Service}:{Method}:{YYYYMMDD-HHMM}    → 方法级统计
+mprpc:metrics:{Service}:total:{YYYYMMDD-HHMM}       → 服务级汇总
+```
+
+### Hash 字段
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| calls | int64 | 总调用次数 |
+| fails | int64 | 失败次数（业务异常） |
+| timeouts | int64 | 超时次数（网络超时） |
+| blocked | int64 | 限流拦截次数 |
+| time_avg | int64 | 平均延迟 (ms) |
+| time_max | int64 | 最大延迟 (ms) |
+| time_min | int64 | 最小延迟 (ms) |
+| time_p99 | int64 | P99 延迟 (ms) — 99% 请求低于该值 |
+| time_p95 | int64 | P95 延迟 (ms) — 95% 请求低于该值 |
+
+### 查看监控数据
 
 ```bash
+# 查看所有监控 key
 redis-cli KEYS "mprpc:metrics*"
-redis-cli GET "mprpc:metrics/UserServiceRpc/Login:calls:20260528-1420"
-redis-cli ZRANGE "mprpc:metrics/UserServiceRpc/Login:latency:20260528-1420" 0 -1
+
+# 查看某分钟的方法级统计
+redis-cli HGETALL "mprpc:metrics:UserServiceRpc:Login:20260528-1420"
+
+# 查看某分钟的服务级汇总
+redis-cli HGETALL "mprpc:metrics:UserServiceRpc:total:20260528-1420"
+
+# 计算错误率（需客户端计算）
+redis-cli HGET "mprpc:metrics:UserServiceRpc:Login:20260528-1420" calls
+redis-cli HGET "mprpc:metrics:UserServiceRpc:Login:20260528-1420" fails
+# 错误率 = fails / calls * 100%
 ```
 
 ---
