@@ -5,6 +5,7 @@
 enum LogLevel
 {
     INFO,
+    WARN,
     ERROR,
 };
 
@@ -33,6 +34,15 @@ do\
     logger.SetLogLevel(INFO);\
     char buf[1024]={0};\
     sprintf(buf,logmsgformat,##__VA_ARGS__); \
+    logger.Log(buf); \
+}while(0);
+
+#define LOG_WARN(logmsgformat,...)\
+do\
+{Logger& logger=Logger::GetInstance();\
+    logger.SetLogLevel(WARN);\
+    char buf[1024]={0};\
+    sprintf(buf, logmsgformat,##__VA_ARGS__); \
     logger.Log(buf); \
 }while(0);
 

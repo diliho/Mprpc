@@ -57,6 +57,10 @@ void MprpcConfig::LoadConfigfile(const char*config_file)
     {
         value = value.substr(0, end_idx + 1);
     }
+    else
+    {
+        value.clear();
+    }
     m_configMap.insert({key,value});
 
 

@@ -2,10 +2,8 @@ syntax = "proto3";
 package fixbug;
 option cc_generic_services = true;
 
-message ResultCode{
-    int32 errorcode = 1;
-    bytes errormsg = 2;
-}
+import "user.proto";
+
 message FriendlistRequest
 {
     uint32 userid=1;

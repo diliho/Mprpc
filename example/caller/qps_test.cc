@@ -3,57 +3,57 @@
 #include<vector>
 #include<atomic>
 #include<chrono>
+#include<unistd.h>
 #include"mprpcapplication.h"
 #include"user.pb.h"
 #include"mprpcchannel.h"
-#include"zookeeperutil.h"
-
+#include"mprpccontroller.h"
 // QPS测试参数
-const int THREAD_NUM = 10;        // 线程数
+const int THREAD_NUM = 8;        // 线程数（充分利用多核）
 const int TEST_DURATION = 5;      // 测试持续时间(秒)
+const int WARMUP_CALLS = 10;      // 预发请求数（建立连接+填充缓存）
 
 // 全局统计变量
 std::atomic<int64_t> total_requests(0);
 std::atomic<int64_t> success_requests(0);
 std::atomic<int64_t> failed_requests(0);
 
-// 全局共享的MprpcChannel实例
-MprpcChannel* g_channel = nullptr;
-
-// 线程函数：持续调用rpc方法
+// 线程函数：持续调用rpc方法（每个线程独立channel，因为MprpcChannel非线程安全）
 void test_rpc() {
-    // 所有线程共享同一个channel
-    fixbug::UserServiceRpc_Stub stub(g_channel);
+    MprpcChannel channel;
+    fixbug::UserServiceRpc_Stub stub(&channel);
     
     // 创建请求参数
     fixbug::LoginRequest request;
     request.set_name("test");
     request.set_pwd("123456");
     
-    // 创建响应对象
-    fixbug::LoginResponse response;
+    // Warm-up: 发送预发请求，建立ZK缓存和TCP长连接
+    for (int i = 0; i < WARMUP_CALLS; i++) {
+        MprpcController controller;
+        fixbug::LoginResponse resp;
+        stub.Login(&controller, &request, &resp, nullptr);
+    }
     
     // 记录开始时间
     auto start_time = std::chrono::steady_clock::now();
     
     while (true) {
-        // 检查是否超时
         auto current_time = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
-        if (duration >= TEST_DURATION) {
-            break;
-        }
+        if (duration >= TEST_DURATION) break;
         
-        // 增加总请求数
         total_requests++;
         
-        // 调用rpc方法
-        stub.Login(nullptr, &request, &response, nullptr);
+        MprpcController controller;
+        fixbug::LoginResponse resp;
+        stub.Login(&controller, &request, &resp, nullptr);
         
-        // 检查调用结果
-        if (!response.result().errorcode()) {
+        if (!controller.Failed() && !resp.result().errorcode())
             success_requests++;
-        } else {
+        else {
+            if (failed_requests == 0)
+                std::cout << "first error: " << controller.ErrorText() << std::endl;
             failed_requests++;
         }
     }
@@ -62,10 +62,7 @@ void test_rpc() {
 int main(int argc, char **argv) {
     // 初始化mprpc框架
     MprpcApplication::Init(argc, argv);
-    
-    // 创建全局共享的channel实例
-    g_channel = new MprpcChannel();
-    
+
     // 创建线程池
     std::vector<std::thread> threads;
     
@@ -90,7 +87,7 @@ int main(int argc, char **argv) {
     double qps = static_cast<double>(total_requests) / actual_duration;
     
     // 输出统计结果
-    std::cout << "QPS Test Result:" << std::endl;
+    std::cout << "\nQPS Test Result:" << std::endl;
     std::cout << "====================" << std::endl;
     std::cout << "Thread Num: " << THREAD_NUM << std::endl;
     std::cout << "Test Duration: " << actual_duration << " seconds" << std::endl;
@@ -99,9 +96,7 @@ int main(int argc, char **argv) {
     std::cout << "Failed Requests: " << failed_requests << std::endl;
     std::cout << "QPS: " << qps << std::endl;
     std::cout << "Success Rate: " << (static_cast<double>(success_requests) / total_requests) * 100 << "%" << std::endl;
-    
-    // 释放全局channel资源
-    delete g_channel;
-    
-    return 0;
+
+    // Logger后台线程阻塞在条件变量上，正常退出会因静态析构顺序导致死锁
+    _exit(0);
 }
