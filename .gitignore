@@ -1,0 +1,13 @@
+# 编译输出
+bin/
+build/
+lib/
+docxs/
+# 自动生成的protobuf文件
+*.pb.cc
+*.pb.h
+# 临时文件
+*.o
+*.out
+*.log
+.DS_Storedocxs/
