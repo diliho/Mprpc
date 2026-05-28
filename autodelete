@@ -1,0 +1,29 @@
+#!/bin/bash
+
+PROJECT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+echo "Cleaning build artifacts, logs, and Redis RDB snapshot..."
+
+# 1. Build artifacts
+rm -rf "$PROJECT_DIR/bin"
+rm -rf "$PROJECT_DIR/lib"
+rm -rf "$PROJECT_DIR/build"
+rm -f "$PROJECT_DIR/provider.out"
+rm -f "$PROJECT_DIR/test/protobuf/a.out"
+
+# 2. Generated protobuf files
+rm -f "$PROJECT_DIR/src/include/rpcheader.pb.h"
+rm -f "$PROJECT_DIR/src/rpcheader.pb.cc"
+rm -f "$PROJECT_DIR/example/user.pb.h"
+rm -f "$PROJECT_DIR/example/user.pb.cc"
+rm -f "$PROJECT_DIR/example/friend.pb.h"
+rm -f "$PROJECT_DIR/example/friend.pb.cc"
+
+# 3. Log files (YYYY-M-D-log.txt pattern)
+rm -f "$PROJECT_DIR"/*-log.txt
+rm -f "$PROJECT_DIR/bin"/*-log.txt
+
+# 4. Redis RDB snapshot
+rm -f "$PROJECT_DIR"/dump.rdb
+
+echo "Done."
