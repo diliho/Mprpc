@@ -1,13 +1,17 @@
-# 编译输出
+# 编译输出目录（整体忽略）
 bin/
 build/
-lib/
 docxs/
-# 自动生成的protobuf文件
-*.pb.cc
-*.pb.h
-# 临时文件
+
+# 编译产物、静态库
 *.o
 *.out
+*.a
+
+# Protobuf 自动生成代码（按需忽略，个人项目推荐开启）
+*.pb.cc
+*.pb.h
+
+# 临时文件、日志、系统文件
 *.log
-.DS_Storedocxs/
+.DS_Store

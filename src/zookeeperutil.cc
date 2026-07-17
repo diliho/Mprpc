@@ -22,7 +22,10 @@ void global_watcher(zhandle_t* zh, int type, int state, const char* path, void* 
     else if (state == ZOO_EXPIRED_SESSION_STATE)
     {
         LOG_ERROR("ZK session expired, reinitializing...");
-        client->doReinitialize();
+        // doReinitialize may block, offload to a separate thread
+        // to avoid deadlocking the ZK event thread
+        std::thread t([client]() { client->doReinitialize(); });
+        t.detach();
     }
     else if (state == ZOO_AUTH_FAILED_STATE)
     {
@@ -46,6 +49,13 @@ ZKClient::~ZKClient()
 
 bool ZKClient::Start()
 {
+    std::lock_guard<std::mutex> lock(m_zk_mtx);
+    if (m_zhandle != nullptr)
+    {
+        // Already started (shared ZKClient case)
+        return m_connected;
+    }
+
     std::string host = MprpcApplication::GetInstance().GetConfig().Load("zookeeperip");
     std::string port = MprpcApplication::GetInstance().GetConfig().Load("zookeeperport");
     std::string conststr = host + ":" + port;
@@ -84,28 +94,55 @@ bool ZKClient::Start()
 
 void ZKClient::doReinitialize()
 {
-    if (m_zhandle)
     {
-        zookeeper_close(m_zhandle);
-        m_zhandle = nullptr;
+        std::lock_guard<std::mutex> lock(m_zk_mtx);
+        if (m_zhandle)
+        {
+            zookeeper_close(m_zhandle);
+            m_zhandle = nullptr;
+        }
+        m_connected = false;
+        sem_destroy(&m_sem);
+        sem_init(&m_sem, 0, 0);
     }
-    m_connected = false;
-    sem_destroy(&m_sem);
-    sem_init(&m_sem, 0, 0);
 
     LOG_INFO("ZK reconnecting...");
     if (Start())
     {
         LOG_INFO("ZK reconnected");
-        if (m_on_reconnect_cb)
+        std::vector<ReconnectCallback> cbs;
         {
-            m_on_reconnect_cb();
+            std::lock_guard<std::mutex> lock(m_zk_mtx);
+            cbs = m_reconnect_cbs;
+        }
+        for (auto& cb : cbs)
+        {
+            if (cb) cb();
         }
     }
     else
     {
         LOG_ERROR("ZK reconnection failed, will retry later");
     }
+}
+
+void ZKClient::setOnReconnectCallback(ReconnectCallback cb)
+{
+    std::lock_guard<std::mutex> lock(m_zk_mtx);
+    m_reconnect_cbs.clear();
+    m_reconnect_cbs.push_back(std::move(cb));
+}
+
+void ZKClient::addReconnectCallback(ReconnectCallback cb)
+{
+    std::lock_guard<std::mutex> lock(m_zk_mtx);
+    m_reconnect_cbs.push_back(std::move(cb));
+}
+
+bool ZKClient::isConnected()
+{
+    std::lock_guard<std::mutex> lock(m_zk_mtx);
+    return m_connected;
 }
 
 void ZKClient::CreateParentNodes(const char* path)

@@ -17,6 +17,14 @@ RateLimiter::RateLimiter(std::shared_ptr<RedisClient> redis,
              max_requests, window_sec, static_cast<int>(algorithm));
 }
 
+void RateLimiter::UpdateRules(const RateLimitConfig& config) {
+    m_max_requests.store(config.max_requests);
+    m_window_sec.store(config.window_sec);
+    m_algorithm.store(config.algorithm);
+    LOG_INFO("RateLimiter rules updated: max=%d, window=%ds, algo=%d",
+             config.max_requests, config.window_sec, static_cast<int>(config.algorithm));
+}
+
 std::string RateLimiter::buildKey(const std::string& service_name,
                                    const std::string& method_name,
                                    const std::string& client_ip,
@@ -38,7 +46,7 @@ bool RateLimiter::allow(const std::string& service_name,
         return true;
     }
 
-    switch (m_algorithm)
+    switch (m_algorithm.load())
     {
     case RateLimitAlgorithm::FIXED_WINDOW:
         return allowFixedWindow(buildKey(service_name, method_name, client_ip, "fixed"));
@@ -59,16 +67,17 @@ bool RateLimiter::allowFixedWindow(const std::string& key)
     int64_t count = m_redis->Incr(key);
     if (count == 1)
     {
-        m_redis->Expire(key, m_window_sec);
+        m_redis->Expire(key, m_window_sec.load());
     }
-    return count <= m_max_requests;
+    return count <= m_max_requests.load();
 }
 
 bool RateLimiter::allowSlidingWindowLog(const std::string& key)
 {
     int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    int64_t window_start = now - m_window_sec * 1000;
+    int window_sec = m_window_sec.load();
+    int64_t window_start = now - window_sec * 1000;
 
     const char* script =
         "redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1]) "
@@ -84,10 +93,10 @@ bool RateLimiter::allowSlidingWindowLog(const std::string& key)
     std::vector<std::string> keys = {key};
     std::vector<std::string> args = {
         std::to_string(window_start),
-        std::to_string(m_max_requests),
+        std::to_string(m_max_requests.load()),
         std::to_string(now),
         std::to_string(now) + ":" + std::to_string(rand()),
-        std::to_string(m_window_sec + 1)
+        std::to_string(window_sec + 1)
     };
 
     std::string result = m_redis->Eval(script, keys, args);
@@ -96,7 +105,8 @@ bool RateLimiter::allowSlidingWindowLog(const std::string& key)
 
 bool RateLimiter::allowSlidingWindowCounter(const std::string& key)
 {
-    int sub_window_ms = (m_window_sec * 1000) / 10;
+    int window_sec = m_window_sec.load();
+    int sub_window_ms = (window_sec * 1000) / 10;
     int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -106,7 +116,7 @@ bool RateLimiter::allowSlidingWindowCounter(const std::string& key)
     int64_t current_count = m_redis->Incr(current_key);
     if (current_count == 1)
     {
-        m_redis->Expire(current_key, m_window_sec * 2);
+        m_redis->Expire(current_key, window_sec * 2);
     }
 
     int64_t total = 0;
@@ -121,7 +131,7 @@ bool RateLimiter::allowSlidingWindowCounter(const std::string& key)
         }
     }
 
-    return total <= m_max_requests;
+    return total <= m_max_requests.load();
 }
 
 bool RateLimiter::allowTokenBucket(const std::string& key)
@@ -129,8 +139,10 @@ bool RateLimiter::allowTokenBucket(const std::string& key)
     int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    int capacity = m_max_requests;
-    double rate = static_cast<double>(m_max_requests) / m_window_sec;
+    int max_req = m_max_requests.load();
+    int window_sec = m_window_sec.load();
+    int capacity = max_req;
+    double rate = static_cast<double>(max_req) / window_sec;
 
     const char* script =
         "local key = KEYS[1] "
@@ -181,7 +193,7 @@ bool RateLimiter::allowLeakyBucket(const std::string& key)
 
     std::vector<std::string> keys = {key};
     std::vector<std::string> args = {
-        std::to_string(m_max_requests),
+        std::to_string(m_max_requests.load()),
         std::to_string(now_ms)
     };
 
@@ -202,12 +214,18 @@ int64_t RateLimiter::getCurrentCount(const std::string& service_name,
 
 void RateLimiter::setMaxRequests(int max_requests)
 {
-    m_max_requests = max_requests;
+    m_max_requests.store(max_requests);
     LOG_INFO("RateLimiter max_requests updated to %d", max_requests);
 }
 
 void RateLimiter::setWindowSec(int window_sec)
 {
-    m_window_sec = window_sec;
+    m_window_sec.store(window_sec);
     LOG_INFO("RateLimiter window_sec updated to %d", window_sec);
+}
+
+void RateLimiter::setAlgorithm(RateLimitAlgorithm algorithm)
+{
+    m_algorithm.store(algorithm);
+    LOG_INFO("RateLimiter algorithm updated to %d", static_cast<int>(algorithm));
 }

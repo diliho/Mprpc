@@ -77,3 +77,8 @@ std::string MprpcConfig::Load(const std::string&key)
     return it->second;
 
 }
+
+void MprpcConfig::SetConfig(const std::string& key, const std::string& value)
+{
+    m_configMap[key] = value;
+}

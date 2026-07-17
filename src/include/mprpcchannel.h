@@ -26,7 +26,7 @@ public:
                     google::protobuf::Closure* done);
 
 private:
-    ZKClient m_zkclient;
+    std::shared_ptr<ZKClient> m_zkclient;
     bool m_zk_available;
     std::shared_ptr<RedisClient> m_redis;
     std::unique_ptr<MetricsCollector> m_metrics;
@@ -61,6 +61,13 @@ private:
     std::unordered_map<std::string, int> m_persistent_fds;
 
     static constexpr int MAX_RETRY = 3;
+
+    // ─── ZK Watcher for real-time service up/down awareness ───
+    static void serviceWatcher(zhandle_t* zh, int type, int state,
+                                const char* path, void* watcherCtx);
+    void invalidateCache(const std::string& method_path);
+    void registerWatcher(const std::string& method_path);
+    std::unordered_map<std::string, bool> m_watcher_registered;
 
     std::string discoverService(const std::string& method_path);
     bool connectWithTimeout(int clientfd, const struct sockaddr_in& addr, int timeout_sec);

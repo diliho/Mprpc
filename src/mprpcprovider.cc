@@ -8,6 +8,7 @@
 #include "rpcheader.pb.h"
 #include <signal.h>
 #include <vector>
+#include <thread>
 
 static RpcProvider* g_shutdown_provider = nullptr;
 
@@ -68,7 +69,7 @@ void RpcProvider::registerServicesToZK()
         {
             std::string method_path = service_path + "/" + mp.first;
             char data[128] = {0};
-            sprintf(data, "%s:%d", m_ip.c_str(), m_port);
+            snprintf(data, sizeof(data), "%s:%d", m_ip.c_str(), m_port);
             m_zkclient.Create(method_path.c_str(), data, strlen(data), ZOO_EPHEMERAL);
         }
     }
@@ -86,7 +87,13 @@ void RpcProvider::Run()
     m_server = std::make_unique<muduo::net::TcpServer>(&m_eventloop, address, "RpcProvider");
     m_server->setConnectionCallback(std::bind(&RpcProvider::OnConnection, this, std::placeholders::_1));
     m_server->setMessageCallback(std::bind(&RpcProvider::OnMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-    m_server->setThreadNum(4);
+    std::string threads_str = MprpcApplication::GetConfig().Load("rpcproviderthreads");
+    int io_threads = threads_str.empty() ? 0 : std::stoi(threads_str);
+    if (io_threads <= 0) io_threads = std::thread::hardware_concurrency();
+    if (io_threads < 1) io_threads = 1;
+    m_server->setThreadNum(io_threads);
+    LOG_INFO("RpcProvider: using %d IO threads (config=%s)", io_threads,
+             threads_str.empty() ? "auto" : threads_str.c_str());
 
     m_zkclient.Start();
     registerServicesToZK();
@@ -137,7 +144,7 @@ void RpcProvider::Run()
         }
     }
 
-    m_zkclient.setOnReconnectCallback([this]() {
+    m_zkclient.addReconnectCallback([this]() {
         LOG_INFO("ZK reconnected, re-registering services...");
         registerServicesToZK();
     });
@@ -203,6 +210,7 @@ void RpcProvider::sendErrorResponse(const muduo::net::TcpConnectionPtr& conn, co
     rpcHeader.set_service_name("");
     rpcHeader.set_method_name("");
     rpcHeader.set_args_size(0);
+    rpcHeader.set_version(1);
 
     std::string rpc_header_str;
     rpcHeader.SerializeToString(&rpc_header_str);
@@ -238,12 +246,14 @@ void RpcProvider::OnMessage(const muduo::net::TcpConnectionPtr &conn,
     mprpc::RpcHeader rpcHeader;
     std::string service_name;
     std::string method_name;
+    std::string trace_id;
     uint32_t args_size = 0;
     if (rpcHeader.ParseFromString(rpc_header_str))
     {
         service_name = rpcHeader.service_name();
         method_name = rpcHeader.method_name();
         args_size = rpcHeader.args_size();
+        trace_id = rpcHeader.trace_id();
     }
     else
     {
@@ -344,6 +354,7 @@ void RpcProvider::SendRpcResponse(const muduo::net::TcpConnectionPtr& conn,
             rpcHeader.set_service_name("");
             rpcHeader.set_method_name("");
             rpcHeader.set_args_size(response_str.size());
+            rpcHeader.set_version(1);
 
             std::string rpc_header_str;
             if (rpcHeader.SerializeToString(&rpc_header_str)) {

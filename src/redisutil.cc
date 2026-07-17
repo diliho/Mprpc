@@ -102,21 +102,6 @@ bool RedisClient::ensureConnected()
     return getContext() != nullptr;
 }
 
-// ── Helper macro for simple commands ──
-#define REDIS_CMD(fmt, ...) \
-    do { \
-        redisContext* __ctx = getContext(); \
-        if (!__ctx) return (ret_type##); \
-        redisReply* reply = (redisReply*)redisCommand(__ctx, fmt, ##__VA_ARGS__); \
-        if (!reply) return (ret_type##); \
-        ret_type## _r; \
-        /* set result */ \
-        freeReplyObject(reply); \
-        return _r; \
-    } while(0)
-
-// Actually, macro is too fragile. Let me just inline the pattern.
-
 // ── Key ──
 
 bool RedisClient::Exists(const std::string& key)

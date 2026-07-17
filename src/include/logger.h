@@ -1,6 +1,9 @@
 #pragma once
-#include"lockqueue.h"
-#include<string> 
+#include "lockqueue.h"
+#include <string>
+#include <atomic>
+#include <memory>
+#include <cstdio>
 
 enum LogLevel
 {
@@ -12,45 +15,41 @@ enum LogLevel
 class Logger
 {
 public:
-static Logger& GetInstance();
-  void SetLogLevel(LogLevel level);
-  void Log(std::string msg);
+    static Logger& GetInstance();
+    void SetLogLevel(LogLevel level);
+    void Log(LogLevel level, std::string msg);
+    void Shutdown();
+
 private:
-
-    LockQueue<std::string>m_lockqueue;
-    int m_loglevel;
-    //单列模式
+    LockQueue<std::string> m_lockqueue;
+    std::atomic<int> m_loglevel;
+    std::atomic<bool> m_running;
+    
     Logger();
-    Logger(const Logger&)=delete;
-   Logger(Logger&&)=delete; 
+    Logger(const Logger&) = delete;
+    Logger(Logger&&) = delete;
+};
 
-}; 
+#define LOG_INFO(logmsgformat, ...) \
+do \
+{ \
+    char buf[1024] = {0}; \
+    snprintf(buf, sizeof(buf), logmsgformat, ##__VA_ARGS__); \
+    Logger::GetInstance().Log(INFO, buf); \
+} while(0);
 
+#define LOG_WARN(logmsgformat, ...) \
+do \
+{ \
+    char buf[1024] = {0}; \
+    snprintf(buf, sizeof(buf), logmsgformat, ##__VA_ARGS__); \
+    Logger::GetInstance().Log(WARN, buf); \
+} while(0);
 
-#define LOG_INFO(logmsgformat,...)\
-do\
-{\
-    Logger& logger=Logger::GetInstance();\
-    logger.SetLogLevel(INFO);\
-    char buf[1024]={0};\
-    sprintf(buf,logmsgformat,##__VA_ARGS__); \
-    logger.Log(buf); \
-}while(0);
-
-#define LOG_WARN(logmsgformat,...)\
-do\
-{Logger& logger=Logger::GetInstance();\
-    logger.SetLogLevel(WARN);\
-    char buf[1024]={0};\
-    sprintf(buf, logmsgformat,##__VA_ARGS__); \
-    logger.Log(buf); \
-}while(0);
-
-#define LOG_ERROR(logmsgformat,...)\
-do\
-{Logger& logger=Logger::GetInstance();\
-    logger.SetLogLevel(ERROR);\
-    char buf[1024]={0};\
-    sprintf(buf, logmsgformat,##__VA_ARGS__); \
-    logger.Log(buf); \
-}while(0);
+#define LOG_ERROR(logmsgformat, ...) \
+do \
+{ \
+    char buf[1024] = {0}; \
+    snprintf(buf, sizeof(buf), logmsgformat, ##__VA_ARGS__); \
+    Logger::GetInstance().Log(ERROR, buf); \
+} while(0);

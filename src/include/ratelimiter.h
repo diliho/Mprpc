@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <memory>
+#include <atomic>
 #include "redisutil.h"
 
 enum class RateLimitAlgorithm {
@@ -9,6 +10,12 @@ enum class RateLimitAlgorithm {
     SLIDING_WINDOW_COUNTER = 2,
     TOKEN_BUCKET = 3,
     LEAKY_BUCKET = 4
+};
+
+struct RateLimitConfig {
+    int max_requests = 1000;
+    int window_sec = 1;
+    RateLimitAlgorithm algorithm = RateLimitAlgorithm::TOKEN_BUCKET;
 };
 
 class RateLimiter {
@@ -28,16 +35,18 @@ public:
                             const std::string& method_name,
                             const std::string& client_ip = "");
 
+    void UpdateRules(const RateLimitConfig& config);
     void setMaxRequests(int max_requests);
     void setWindowSec(int window_sec);
+    void setAlgorithm(RateLimitAlgorithm algorithm);
 
-    static constexpr const char* KEY_PREFIX = "mprpc:ratelimit:";
+    static constexpr const char* KEY_PREFIX = "mprpc:";
 
 private:
     std::shared_ptr<RedisClient> m_redis;
-    int m_max_requests;
-    int m_window_sec;
-    RateLimitAlgorithm m_algorithm;
+    std::atomic<int> m_max_requests;
+    std::atomic<int> m_window_sec;
+    std::atomic<RateLimitAlgorithm> m_algorithm;
 
     std::string buildKey(const std::string& service_name,
                          const std::string& method_name,

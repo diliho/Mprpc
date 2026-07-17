@@ -66,6 +66,70 @@ void MprpcChannel::CircuitBreaker::onFailure()
     }
 }
 
+// ─── ZK Watcher ────────────────────────────────────────────────
+
+void MprpcChannel::serviceWatcher(zhandle_t* zh, int type, int state,
+                                   const char* path, void* watcherCtx)
+{
+    if (!watcherCtx) return;
+    if (type != ZOO_CREATED_EVENT && type != ZOO_DELETED_EVENT
+        && type != ZOO_CHANGED_EVENT) return;
+
+    MprpcChannel* channel = static_cast<MprpcChannel*>(watcherCtx);
+    LOG_INFO("ZK watcher triggered: type=%d, path=%s", type, path);
+    channel->invalidateCache(path);
+}
+
+void MprpcChannel::invalidateCache(const std::string& method_path)
+{
+    std::lock_guard<std::mutex> lock(m_cache_mtx);
+    m_cache_timestamps.erase(method_path);
+    m_watcher_registered[method_path] = false;
+    LOG_INFO("Cache invalidated for %s (next call will re-query ZK)", method_path.c_str());
+}
+
+void MprpcChannel::registerWatcher(const std::string& method_path)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_cache_mtx);
+        if (m_watcher_registered[method_path]) return;
+    }
+
+    zhandle_t* zh = m_zkclient->getHandle();
+    if (!zh || !m_zkclient->isConnected()) return;
+
+    struct Stat stat;
+    char buffer[64];
+    int bufferlen = sizeof(buffer);
+
+    // Try data watcher on existing node (watches change + deletion)
+    int rc = zoo_wget(zh, method_path.c_str(), serviceWatcher, this,
+                      buffer, &bufferlen, &stat);
+    if (rc == ZOK)
+    {
+        std::lock_guard<std::mutex> lock(m_cache_mtx);
+        m_watcher_registered[method_path] = true;
+        LOG_INFO("ZK data watcher registered for %s", method_path.c_str());
+        return;
+    }
+
+    // Node doesn't exist — register existence watcher (watches creation)
+    if (rc == ZNONODE)
+    {
+        rc = zoo_wexists(zh, method_path.c_str(), serviceWatcher, this, &stat);
+        if (rc == ZOK)
+        {
+            std::lock_guard<std::mutex> lock(m_cache_mtx);
+            m_watcher_registered[method_path] = true;
+            LOG_INFO("ZK existence watcher registered for %s", method_path.c_str());
+            return;
+        }
+    }
+
+    LOG_WARN("Failed to register ZK watcher for %s, rc=%d",
+             method_path.c_str(), rc);
+}
+
 // ─── Service Discovery ─────────────────────────────────────────
 
 std::string MprpcChannel::discoverService(const std::string& method_path)
@@ -92,7 +156,7 @@ std::string MprpcChannel::discoverService(const std::string& method_path)
     {
         for (int i = 0; i < MAX_RETRY; ++i)
         {
-            std::string addr = m_zkclient.GetData(method_path.c_str());
+            std::string addr = m_zkclient->GetData(method_path.c_str());
             if (!addr.empty())
             {
                 {
@@ -100,6 +164,10 @@ std::string MprpcChannel::discoverService(const std::string& method_path)
                     m_addr_cache[method_path] = addr;
                     m_cache_timestamps[method_path] = std::chrono::steady_clock::now();
                 }
+
+                // Register ZK watcher for real-time service awareness
+                registerWatcher(method_path);
+
                 return addr;
             }
 
@@ -112,6 +180,9 @@ std::string MprpcChannel::discoverService(const std::string& method_path)
         }
         m_zk_available = false;
     }
+
+    // ── Try to register existence watcher (in case node disappeared) ──
+    registerWatcher(method_path);
 
     // ── Degrade: use cached address ──
     {
@@ -163,9 +234,18 @@ bool MprpcChannel::connectWithTimeout(int clientfd, const struct sockaddr_in& ad
 
 MprpcChannel::MprpcChannel() : m_zk_available(true)
 {
-    if (m_zkclient.Start())
+    m_zkclient = MprpcApplication::GetZKClient();
+    if (m_zkclient && m_zkclient->isConnected())
     {
-        LOG_INFO("MprpcChannel: ZKClient initialized successfully");
+        LOG_INFO("MprpcChannel: ZKClient acquired (shared)");
+
+        m_zkclient->addReconnectCallback([this]() {
+            LOG_INFO("ZK reconnected: clearing watcher state and cache");
+            std::lock_guard<std::mutex> lock(m_cache_mtx);
+            for (auto& kv : m_watcher_registered)
+                kv.second = false;
+            m_cache_timestamps.clear();
+        });
     }
     else
     {
@@ -264,6 +344,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
     rpcHeader.set_service_name(service_name);
     rpcHeader.set_method_name(method_name);
     rpcHeader.set_args_size(args_size);
+    rpcHeader.set_version(1);  // 协议版本1
 
     uint32_t header_size = 0;
     std::string rpc_header_str;
@@ -298,6 +379,8 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
     // ── Retry loop ──
     std::string last_error;
     bool is_timeout = false;
+
+    LOG_INFO("CallMethod: starting retry loop for %s", method_path.c_str());
 
     for (int attempt = 0; attempt < MAX_RETRY; ++attempt)
     {
@@ -372,7 +455,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
             if (clientfd == -1)
             {
                 char errtxt[512];
-                sprintf(errtxt, "create socket error! errno:%d", errno);
+                snprintf(errtxt, sizeof(errtxt), "create socket error! errno:%d", errno);
                 auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::NETWORK_CONNECT_FAILED, errno, "MPRPC");
                 static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt));
                 return;
@@ -383,7 +466,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
             {
                 close(clientfd);
                 char errtxt[512];
-                sprintf(errtxt, "connect to %s:%d failed! errno:%d", ip.c_str(), port, errno);
+                snprintf(errtxt, sizeof(errtxt), "connect to %s:%d failed! errno:%d", ip.c_str(), port, errno);
                 last_error = errtxt;
                 continue;
             }
@@ -395,7 +478,7 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
                 close(clientfd);
                 m_persistent_fds.erase(conn_key);
                 char errtxt[512];
-                sprintf(errtxt, "send error! errno:%d", errno);
+                snprintf(errtxt, sizeof(errtxt), "send error! errno:%d", errno);
                 auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_SEND_FAILED, errno, "MPRPC");
                 static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt));
                 continue;
@@ -408,36 +491,105 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
         tv.tv_usec = 0;
         setsockopt(clientfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-        char recv_buf[1024] = {0};
-        int recv_size = recv(clientfd, recv_buf, sizeof(recv_buf), 0);
-        if (recv_size <= 0)
+        // Step 1: Read 4-byte header length
+        uint32_t response_header_size = 0;
+        {
+            char len_buf[4] = {0};
+            int total_read = 0;
+            while (total_read < 4)
+            {
+                int n = recv(clientfd, len_buf + total_read, 4 - total_read, 0);
+                if (n <= 0)
+                {
+                    close(clientfd);
+                    m_persistent_fds.erase(conn_key);
+                    if (n == 0) last_error = "connection closed by server";
+                    else if (errno == EAGAIN || errno == EWOULDBLOCK) { last_error = "RPC recv header timeout (5s)"; is_timeout = true; }
+                    else { char errtxt[512]; snprintf(errtxt, sizeof(errtxt), "recv header error! errno:%d", errno);
+                           auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
+                           static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+                    continue;
+                }
+                total_read += n;
+            }
+            memcpy(&response_header_size, len_buf, 4);
+        }
+
+        // Step 2: Validate header size
+        if (response_header_size > 1024 * 1024)
         {
             close(clientfd);
             m_persistent_fds.erase(conn_key);
-            if (recv_size == 0) last_error = "connection closed by server";
-            else if (errno == EAGAIN || errno == EWOULDBLOCK) { last_error = "RPC recv timeout (5s)"; is_timeout = true; }
-            else { char errtxt[512]; sprintf(errtxt, "recv error! errno:%d", errno);
-                   auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
-                   static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+            last_error = "invalid response header size: too large";
             continue;
         }
 
-        // ── Parse response ──
-        std::string recv_str(recv_buf, recv_size);
-        if (recv_str.size() < 4) { close(clientfd); m_persistent_fds.erase(conn_key); last_error = "invalid response: too short"; continue; }
+        // Step 3: Read header bytes
+        std::string response_rpc_header_str(response_header_size, '\0');
+        {
+            int total_read = 0;
+            while (total_read < static_cast<int>(response_header_size))
+            {
+                int n = recv(clientfd, &response_rpc_header_str[total_read], 
+                            response_header_size - total_read, 0);
+                if (n <= 0)
+                {
+                    close(clientfd);
+                    m_persistent_fds.erase(conn_key);
+                    if (n == 0) last_error = "connection closed by server";
+                    else if (errno == EAGAIN || errno == EWOULDBLOCK) { last_error = "RPC recv header body timeout"; is_timeout = true; }
+                    else { char errtxt[512]; snprintf(errtxt, sizeof(errtxt), "recv header body error! errno:%d", errno);
+                           auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
+                           static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+                    continue;
+                }
+                total_read += n;
+            }
+        }
 
-        uint32_t response_header_size = 0;
-        recv_str.copy((char*)&response_header_size, 4, 0);
-        if (4 + response_header_size > recv_str.size()) { close(clientfd); m_persistent_fds.erase(conn_key); last_error = "invalid response header size"; continue; }
-
-        std::string response_rpc_header_str = recv_str.substr(4, response_header_size);
+        // Step 4: Parse header
         mprpc::RpcHeader response_rpcHeader;
-        if (!response_rpcHeader.ParseFromString(response_rpc_header_str)) { close(clientfd); m_persistent_fds.erase(conn_key); last_error = "parse response header error"; continue; }
+        if (!response_rpcHeader.ParseFromString(response_rpc_header_str))
+        {
+            close(clientfd);
+            m_persistent_fds.erase(conn_key);
+            last_error = "parse response header error";
+            continue;
+        }
 
         uint32_t response_args_size = response_rpcHeader.args_size();
-        if (response_args_size == 0) { close(clientfd); m_persistent_fds.erase(conn_key); last_error = "server error"; continue; }
+        if (response_args_size == 0)
+        {
+            close(clientfd);
+            m_persistent_fds.erase(conn_key);
+            last_error = "server error: empty args";
+            continue;
+        }
 
-        std::string response_str = recv_str.substr(4 + response_header_size, response_args_size);
+        // Step 5: Read args bytes (dynamic allocation)
+        std::string response_str(response_args_size, '\0');
+        {
+            int total_read = 0;
+            while (total_read < static_cast<int>(response_args_size))
+            {
+                int n = recv(clientfd, &response_str[total_read], 
+                            response_args_size - total_read, 0);
+                if (n <= 0)
+                {
+                    close(clientfd);
+                    m_persistent_fds.erase(conn_key);
+                    if (n == 0) last_error = "connection closed by server";
+                    else if (errno == EAGAIN || errno == EWOULDBLOCK) { last_error = "RPC recv args timeout"; is_timeout = true; }
+                    else { char errtxt[512]; snprintf(errtxt, sizeof(errtxt), "recv args error! errno:%d", errno);
+                           auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
+                           static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+                    continue;
+                }
+                total_read += n;
+            }
+        }
+
+        // Step 6: Parse response
         if (!response->ParseFromString(response_str))
         {
             close(clientfd);

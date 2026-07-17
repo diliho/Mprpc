@@ -1,7 +1,11 @@
 #设置cmake的最低版本和项目名称
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.10)
 #项目名称
 project(mprpc)
+
+#设置C++标准
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 #设置项目可执行文件输出的路径
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
@@ -19,3 +23,5 @@ link_directories(/home/dili/local/muduo/lib)
 add_subdirectory(src)
 #example包含mprpc框架的使用示例代码
 add_subdirectory(example)
+#test包含单元测试
+add_subdirectory(test/unit)

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <sstream>
 #include <cstring>
+#include <fstream>
 #include "mprpcapplication.h"
 #include "user.pb.h"
 #include "friend.pb.h"
@@ -22,11 +23,16 @@ static int g_duration_sec = 5;
 static std::vector<int> g_concurrency = {1, 2, 4, 8, 16};
 static std::string g_method = "login";
 static bool g_quiet = false;
+static bool g_show_blocked = false;   // -b: show blocked count
+static int g_algo = -1;               // -a: algorithm override (0-4), -1 = use config
+static int g_max_qps = -1;            // -t: max_qps override, -1 = use config
+static std::string g_csv_file;        // -o <file>: write CSV output
 
 // ─── Per-thread result ───
 struct ThreadResult {
     int64_t calls = 0;
     int64_t errors = 0;
+    int64_t blocked = 0;
     std::vector<double> latencies_us;
 };
 
@@ -36,6 +42,7 @@ struct RoundResult {
     double duration_sec = 0;
     int64_t total_calls = 0;
     int64_t total_errors = 0;
+    int64_t total_blocked = 0;
     std::vector<double> all_us;
 };
 
@@ -82,12 +89,20 @@ static ThreadResult worker(int id, int warmup, int duration_sec,
     // Warmup
     for (int i = 0; i < warmup; i++) {
         MprpcController ctrl;
+        auto w_start = std::chrono::steady_clock::now();
         if (method == "register") {
             fixbug::RegisterResponse resp;
             stub.Register(&ctrl, &reg_req, &resp, nullptr);
         } else {
             fixbug::LoginResponse resp;
             stub.Login(&ctrl, &login_req, &resp, nullptr);
+        }
+        auto w_end = std::chrono::steady_clock::now();
+        int64_t w_ms = std::chrono::duration_cast<std::chrono::milliseconds>(w_end - w_start).count();
+        if (w_ms > 100) {
+            std::cout << "[DEBUG] Warmup call " << i << " took " << w_ms << "ms, failed=" << ctrl.Failed();
+            if (ctrl.Failed()) std::cout << " err=" << ctrl.ErrorText();
+            std::cout << std::endl;
         }
     }
 
@@ -116,7 +131,11 @@ static ThreadResult worker(int id, int warmup, int duration_sec,
         r.latencies_us.push_back(
             std::chrono::duration_cast<std::chrono::microseconds>(
                 op_end - op_start).count());
-        if (ctrl.Failed()) r.errors++;
+        if (ctrl.Failed()) {
+            r.errors++;
+            if (ctrl.ErrorText().find("rate limit") != std::string::npos)
+                r.blocked++;
+        }
     }
     return r;
 }
@@ -130,8 +149,10 @@ static void print_header() {
     std::cout << "  MPRPC Performance Test"
               << "    method=" << g_method
               << "    duration=" << g_duration_sec << "s"
-              << "    warmup=" << g_warmup
-              << std::endl;
+              << "    warmup=" << g_warmup;
+    if (g_algo >= 0) std::cout << "    algo=" << g_algo;
+    if (g_max_qps > 0) std::cout << "    max_qps=" << g_max_qps;
+    std::cout << std::endl;
     print_separator();
 }
 
@@ -141,6 +162,7 @@ static void print_table_header(bool multi_round) {
                   << std::setw(6) << "Thrds"
                   << std::setw(12) << "QPS"
                   << std::setw(10) << "Succ%"
+                  << std::setw(10) << "Blk%"
                   << std::setw(10) << "Avg(ms)"
                   << std::setw(10) << "Min(ms)"
                   << std::setw(10) << "Max(ms)"
@@ -154,11 +176,13 @@ static void print_table_header(bool multi_round) {
 }
 
 static void print_stats_row(const std::string& label, const Stats& s,
-                            int64_t total) {
+                            int64_t total, int64_t blocked = 0) {
+    double blk_pct = total > 0 ? 100.0 * blocked / total : 0;
     std::cout << std::left
               << std::setw(6) << label
               << std::setw(12) << std::fixed << std::setprecision(0) << s.qps
               << std::setw(10) << std::fixed << std::setprecision(1) << s.success_rate
+              << std::setw(10) << std::fixed << std::setprecision(1) << blk_pct
               << std::setw(10) << std::fixed << std::setprecision(2) << s.avg_ms
               << std::setw(10) << std::fixed << std::setprecision(2) << s.min_ms
               << std::setw(10) << std::fixed << std::setprecision(2) << s.max_ms
@@ -171,7 +195,7 @@ static void print_stats_row(const std::string& label, const Stats& s,
 
 static void print_round(const RoundResult& round) {
     Stats s = compute(round);
-    print_stats_row(std::to_string(round.concurrency), s, round.total_calls);
+    print_stats_row(std::to_string(round.concurrency), s, round.total_calls, round.total_blocked);
 }
 
 static void print_footer(const std::vector<RoundResult>& rounds) {
@@ -221,6 +245,7 @@ static void run_single_round(int concurrency, std::vector<RoundResult>& rounds) 
     for (auto& r : results) {
         round.total_calls += r.calls;
         round.total_errors += r.errors;
+        round.total_blocked += r.blocked;
         round.all_us.insert(round.all_us.end(),
                             r.latencies_us.begin(), r.latencies_us.end());
     }
@@ -249,6 +274,14 @@ static void parse_args(int argc, char** argv) {
             g_method = argv[++i];
         else if (strcmp(argv[i], "-q") == 0)
             g_quiet = true;
+        else if (strcmp(argv[i], "-b") == 0)
+            g_show_blocked = true;
+        else if (strcmp(argv[i], "-a") == 0 && i + 1 < argc)
+            g_algo = atoi(argv[++i]);
+        else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
+            g_max_qps = atoi(argv[++i]);
+        else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
+            g_csv_file = argv[++i];
     }
 }
 
@@ -262,15 +295,28 @@ int main(int argc, char** argv) {
             mprpc_args.push_back(argv[i + 1]);
             i++;
         } else if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "-d") == 0 ||
-                   strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "-m") == 0) {
+                   strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "-m") == 0 ||
+                   strcmp(argv[i], "-a") == 0 || strcmp(argv[i], "-t") == 0 ||
+                   strcmp(argv[i], "-o") == 0) {
             i++; // skip value
-        } else if (strcmp(argv[i], "-q") == 0) {
+        } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "-b") == 0) {
             // skip
         }
     }
 
     parse_args(argc, argv);
     MprpcApplication::Init(mprpc_args.size(), mprpc_args.data());
+
+    // Apply config overrides from command line
+    MprpcConfig& cfg = MprpcApplication::GetConfig();
+    if (g_algo >= 0) {
+        cfg.SetConfig("ratelimitalgorithm", std::to_string(g_algo));
+        cfg.SetConfig("ratelimitenableconsumer", "true");
+    }
+    if (g_max_qps > 0) {
+        cfg.SetConfig("ratelimitmaxqps", std::to_string(g_max_qps));
+        cfg.SetConfig("ratelimitenableconsumer", "true");
+    }
 
     // Auto-detect concurrency max
     int hw = std::thread::hardware_concurrency();
@@ -292,6 +338,31 @@ int main(int argc, char** argv) {
 
     if (g_concurrency.size() > 1) {
         print_footer(rounds);
+    }
+
+    // Write CSV if requested
+    if (!g_csv_file.empty()) {
+        std::ofstream csv(g_csv_file);
+        csv << "concurrency,qps,success_rate,blocked_pct,avg_ms,min_ms,max_ms,p50_ms,p95_ms,p99_ms,total_calls,total_blocked\n";
+        for (auto& r : rounds) {
+            Stats s = compute(r);
+            double blk_pct = r.total_calls > 0 ? 100.0 * r.total_blocked / r.total_calls : 0;
+            csv << r.concurrency << ","
+                << s.qps << ","
+                << s.success_rate << ","
+                << blk_pct << ","
+                << s.avg_ms << ","
+                << s.min_ms << ","
+                << s.max_ms << ","
+                << s.p50_ms << ","
+                << s.p95_ms << ","
+                << s.p99_ms << ","
+                << r.total_calls << ","
+                << r.total_blocked << "\n";
+        }
+        csv.close();
+        if (!g_quiet)
+            std::cout << "\n  Results written to " << g_csv_file << std::endl;
     }
 
     // Logger background thread blocked on condition variable at exit.

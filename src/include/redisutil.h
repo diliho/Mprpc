@@ -84,5 +84,4 @@ private:
     bool auth(redisContext* ctx);
     redisContext* getContext();
     bool ensureConnected();
-    void freeContext(redisContext* ctx);
 };

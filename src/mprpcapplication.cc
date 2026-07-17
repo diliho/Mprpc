@@ -4,6 +4,9 @@
 #include <string>
 
 MprpcConfig MprpcApplication::m_config;
+std::shared_ptr<ZKClient> MprpcApplication::m_zkclient = nullptr;
+std::once_flag MprpcApplication::m_zk_once_flag;
+
 void ShowArgsHelp()
 {
     
@@ -53,4 +56,13 @@ MprpcApplication &MprpcApplication::GetInstance()
 MprpcConfig &MprpcApplication::GetConfig()
 {
     return m_config;
+}
+
+std::shared_ptr<ZKClient> MprpcApplication::GetZKClient()
+{
+    std::call_once(m_zk_once_flag, []() {
+        m_zkclient = std::make_shared<ZKClient>();
+        m_zkclient->Start();
+    });
+    return m_zkclient;
 }

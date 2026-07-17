@@ -3,6 +3,8 @@
 #include <zookeeper/zookeeper.h>
 #include <string>
 #include <functional>
+#include <vector>
+#include <mutex>
 
 class ZKClient
 {
@@ -13,18 +15,20 @@ public:
     void Create(const char* path, const char* data, int datalen, int state=0);
     std::string GetData(const char* path);
     zhandle_t* getHandle() { return m_zhandle; }
-    bool isConnected() const { return m_connected; }
+    bool isConnected();
     sem_t* getConnectSem() { return &m_sem; }
 
     using ReconnectCallback = std::function<void()>;
-    void setOnReconnectCallback(ReconnectCallback cb) { m_on_reconnect_cb = std::move(cb); }
+    void setOnReconnectCallback(ReconnectCallback cb);
+    void addReconnectCallback(ReconnectCallback cb);
     void doReinitialize();
 
 private:
     zhandle_t* m_zhandle;
     sem_t m_sem;
     bool m_connected;
-    ReconnectCallback m_on_reconnect_cb;
+    std::vector<ReconnectCallback> m_reconnect_cbs;
+    std::mutex m_zk_mtx;
 
     void CreateParentNodes(const char* path);
 };
