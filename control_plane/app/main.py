@@ -6,19 +6,28 @@ Usage:
 
     # Or with uvicorn:
     uvicorn app.main:app --reload --port 8080
+
+    # With MySQL:
+    export MPRPC_DB_URL="mysql+pymysql://user:pass@localhost/mprpc_ee"
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .models.database import init_db
 from .routers import cluster, config, governance, audit
+from .routers import monitor, trace, alert
 from .schemas.schemas import HealthResponse
+
+_db_backend = "sqlite"
+if os.getenv("MPRPC_DB_URL", "").startswith("mysql"):
+    _db_backend = "mysql"
 
 app = FastAPI(
     title="Mprpc-EE Control Plane",
-    description="RPC cluster management, config center, and service governance API",
-    version="2.0.0",
+    description="RPC cluster management, config center, service governance, monitoring & tracing API",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -29,11 +38,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────
+# ── Phase 2 Routers ───────────────────────────────────────────
 app.include_router(cluster.router)
 app.include_router(config.router)
 app.include_router(governance.router)
 app.include_router(audit.router)
+
+# ── Phase 3 Routers ───────────────────────────────────────────
+app.include_router(monitor.router)
+app.include_router(trace.router)
+app.include_router(alert.router)
 
 
 @app.on_event("startup")
@@ -43,15 +57,16 @@ def startup():
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 def health():
-    return HealthResponse(status="ok", version="2.0.0", database="sqlite")
+    return HealthResponse(status="ok", version="3.0.0", database=_db_backend)
 
 
 @app.get("/", tags=["system"])
 def root():
     return {
         "service": "Mprpc-EE Control Plane",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "docs": "/docs",
+        "phase": 3,
     }
 
 

@@ -1,8 +1,11 @@
-"""SQLite database models for the control plane.
+"""Database models for the control plane.
 
-Uses SQLAlchemy with SQLite as the default backend (fallback when MySQL is unavailable).
+Uses SQLAlchemy with configurable backend (SQLite default, MySQL for production).
+Set MPRPC_DB_URL env var to switch to MySQL:
+    export MPRPC_DB_URL="mysql+pymysql://user:pass@localhost/mprpc_ee"
 """
 
+import os
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Float, Boolean, DateTime, Text, JSON,
@@ -12,7 +15,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
 
-engine = create_engine("sqlite:///control_plane.db", echo=False, future=True)
+_db_url = os.getenv("MPRPC_DB_URL", "sqlite:///control_plane.db")
+connect_args = {}
+if _db_url.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+
+engine = create_engine(_db_url, echo=False, future=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, future=True)
 
 
