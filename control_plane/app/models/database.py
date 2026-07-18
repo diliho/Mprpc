@@ -1,0 +1,139 @@
+"""SQLite database models for the control plane.
+
+Uses SQLAlchemy with SQLite as the default backend (fallback when MySQL is unavailable).
+"""
+
+from datetime import datetime
+from sqlalchemy import (
+    Column, Integer, String, Float, Boolean, DateTime, Text, JSON,
+    create_engine, Index,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+Base = declarative_base()
+
+engine = create_engine("sqlite:///control_plane.db", echo=False, future=True)
+SessionLocal = sessionmaker(bind=engine, future=True)
+
+
+class Node(Base):
+    """RPC provider node."""
+    __tablename__ = "nodes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ip = Column(String(45), nullable=False, unique=True)
+    port = Column(Integer, nullable=False)
+    hostname = Column(String(255), default="")
+    status = Column(String(20), default="unknown")  # online/offline/healthy/unhealthy
+    rpc_port = Column(Integer, default=0)
+    region = Column(String(100), default="default")
+    labels = Column(JSON, default=dict)
+    last_heartbeat = Column(DateTime, default=None)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index("idx_node_status", "status"),)
+
+
+class Service(Base):
+    """Registered RPC service."""
+    __tablename__ = "services"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, default="")
+    owner = Column(String(100), default="")
+    version = Column(String(50), default="1.0.0")
+    methods = Column(JSON, default=list)  # list of method names
+    status = Column(String(20), default="active")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ServiceInstance(Base):
+    """Instance of a service on a specific node."""
+    __tablename__ = "service_instances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    service_name = Column(String(255), nullable=False)
+    node_ip = Column(String(45), nullable=False)
+    node_port = Column(Integer, nullable=False)
+    weight = Column(Integer, default=1)
+    status = Column(String(20), default="online")  # online/offline
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_svc_inst", "service_name", "node_ip", "node_port", unique=True),
+    )
+
+
+class ConfigVersion(Base):
+    """Configuration version record."""
+    __tablename__ = "config_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scope = Column(String(50), nullable=False)  # global / service / method
+    scope_key = Column(String(255), default="")  # service name or "service/method"
+    key = Column(String(255), nullable=False)
+    value = Column(Text, nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(String(20), default="pending")  # pending / applied / rolled_back
+    created_by = Column(String(100), default="admin")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_config_scope", "scope", "scope_key", "key"),
+        Index("idx_config_version", "scope", "scope_key", "key", "version"),
+    )
+
+
+class RateLimitRule(Base):
+    """Rate limiting rule for a service/method."""
+    __tablename__ = "rate_limit_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    service_name = Column(String(255), nullable=False, default="*")
+    method_name = Column(String(255), nullable=False, default="*")
+    max_qps = Column(Integer, nullable=False, default=1000)
+    algorithm = Column(String(50), default="token_bucket")
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_ratelimit_svc", "service_name", "method_name"),
+    )
+
+
+class CircuitBreakerRule(Base):
+    """Circuit breaker rule for a service/method."""
+    __tablename__ = "circuit_breaker_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    service_name = Column(String(255), nullable=False, default="*")
+    method_name = Column(String(255), nullable=False, default="*")
+    failure_threshold = Column(Integer, default=5)
+    timeout_sec = Column(Integer, default=30)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuditLog(Base):
+    """Audit log for control plane operations."""
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    action = Column(String(100), nullable=False)
+    resource_type = Column(String(50), nullable=False)
+    resource_id = Column(String(255), default="")
+    detail = Column(JSON, default=dict)
+    operator = Column(String(100), default="admin")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index("idx_audit_action", "action"),)
+
+
+def init_db():
+    """Create all tables."""
+    Base.metadata.create_all(bind=engine)

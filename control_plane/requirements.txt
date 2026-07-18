@@ -1,0 +1,8 @@
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0
+sqlalchemy>=2.0
+aiosqlite>=0.19.0
+kazoo>=2.9
+httpx>=0.24
+prometheus-client>=0.17

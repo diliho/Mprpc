@@ -468,6 +468,10 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
                 char errtxt[512];
                 snprintf(errtxt, sizeof(errtxt), "connect to %s:%d failed! errno:%d", ip.c_str(), port, errno);
                 last_error = errtxt;
+                {
+                    std::lock_guard<std::mutex> lock(m_cb_mtx);
+                    m_method_breakers[method_path].onFailure();
+                }
                 continue;
             }
 
@@ -481,6 +485,10 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
                 snprintf(errtxt, sizeof(errtxt), "send error! errno:%d", errno);
                 auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_SEND_FAILED, errno, "MPRPC");
                 static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt));
+                {
+                    std::lock_guard<std::mutex> lock(m_cb_mtx);
+                    m_method_breakers[method_path].onFailure();
+                }
                 continue;
             }
         }
@@ -508,6 +516,10 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
                     else { char errtxt[512]; snprintf(errtxt, sizeof(errtxt), "recv header error! errno:%d", errno);
                            auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
                            static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+                    {
+                        std::lock_guard<std::mutex> lock(m_cb_mtx);
+                        m_method_breakers[method_path].onFailure();
+                    }
                     continue;
                 }
                 total_read += n;
@@ -541,6 +553,10 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
                     else { char errtxt[512]; snprintf(errtxt, sizeof(errtxt), "recv header body error! errno:%d", errno);
                            auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
                            static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+                    {
+                        std::lock_guard<std::mutex> lock(m_cb_mtx);
+                        m_method_breakers[method_path].onFailure();
+                    }
                     continue;
                 }
                 total_read += n;
@@ -583,6 +599,10 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
                     else { char errtxt[512]; snprintf(errtxt, sizeof(errtxt), "recv args error! errno:%d", errno);
                            auto ec = RpcErrorUtil::createFrameError(FrameErrorCode::MESSAGE_RECV_FAILED, errno, "MPRPC");
                            static_cast<MprpcController*>(controller)->SetFailed(RpcError(ec, errtxt)); }
+                    {
+                        std::lock_guard<std::mutex> lock(m_cb_mtx);
+                        m_method_breakers[method_path].onFailure();
+                    }
                     continue;
                 }
                 total_read += n;

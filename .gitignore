@@ -7,10 +7,18 @@ docxs/
 *.o
 *.out
 *.a
+*.so
 
 # Protobuf 自动生成代码（按需忽略，个人项目推荐开启）
 *.pb.cc
 *.pb.h
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.db
 
 # 临时文件、日志、系统文件
 *.log
