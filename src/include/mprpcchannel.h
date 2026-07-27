@@ -25,6 +25,9 @@ public:
                     google::protobuf::Message* response,
                     google::protobuf::Closure* done);
 
+    void setDirectAddress(const std::string& addr) { m_direct_addr = addr; }
+    std::string getLastProvider() const { return m_last_provider; }
+
 private:
     std::shared_ptr<ZKClient> m_zkclient;
     bool m_zk_available;
@@ -74,4 +77,7 @@ private:
     void parseAndConnect(const std::string& host_data,
                          struct sockaddr_in& server_addr,
                          std::string& ip, uint16_t& port);
+
+    std::string m_direct_addr;
+    std::string m_last_provider;
 };

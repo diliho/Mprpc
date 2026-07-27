@@ -7,23 +7,25 @@ RPC服务提供者主入口
 #include "mprpcprovider.h"
 #include "user.pb.h"
 #include "friend.pb.h"
-#include "userservice.h"  // 添加头文件引用
-#include "friendservice.h"  // 添加头文件引用
+#include "userservice.h"
+#include "friendservice.h"
+#include "prometheus/metrics_exporter.h"
 
 int main(int argc, char **argv)
 {
-    /*框架初始化*/
     MprpcApplication::Init(argc, argv);
 
-    RpcProvider provider;
-    
-    // 把UserService对象发布到rpc节点上
-    provider.NotifyService(new UserService());
-    
-    // 把FriendService对象发布到rpc节点上
-    provider.NotifyService(new FriendService());
+    // Start Prometheus metrics exporter
+    std::string metrics_port_str = MprpcApplication::GetConfig().Load("metricsexporterport");
+    if (!metrics_port_str.empty()) {
+        int metrics_port = std::stoi(metrics_port_str);
+        mprpc::MetricsExporter::GetInstance().Start(metrics_port);
+        std::cout << "Metrics exporter started on port " << metrics_port << std::endl;
+    }
 
-    // 启动rpc服务节点，开始提供rpc远程网络调用服务
+    RpcProvider provider;
+    provider.NotifyService(new UserService());
+    provider.NotifyService(new FriendService());
     provider.Run();
     
     return 0;

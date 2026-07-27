@@ -169,7 +169,8 @@ void ZKClient::CreateParentNodes(const char* path)
     }
 }
 
-void ZKClient::Create(const char* path, const char* data, int datalen, int state)
+void ZKClient::Create(const char* path, const char* data, int datalen, int state,
+                      char* result_path, int result_path_len)
 {
     if (!m_zhandle || !m_connected)
     {
@@ -179,16 +180,19 @@ void ZKClient::Create(const char* path, const char* data, int datalen, int state
 
     CreateParentNodes(path);
 
-    char path_buffer[128];
+    char path_buffer[256];
     int bufferlen = sizeof(path_buffer);
+    char* out_buf = result_path ? result_path : path_buffer;
+    int out_len = result_path && result_path_len > 0 ? result_path_len : bufferlen;
+
     int flag = zoo_exists(m_zhandle, path, 0, nullptr);
     if (ZNONODE == flag)
     {
-        flag = zoo_create(m_zhandle, path, data, datalen, &ZOO_OPEN_ACL_UNSAFE, state, path_buffer, bufferlen);
+        flag = zoo_create(m_zhandle, path, data, datalen, &ZOO_OPEN_ACL_UNSAFE,
+                          state, out_buf, out_len);
         if (flag == ZOK)
         {
-            std::cout << "SUCCESS: Create znode: " << path << " data: " << (data ? data : "null") << std::endl;
-            LOG_INFO("SUCCESS: Create znode: %s", path);
+            LOG_INFO("SUCCESS: Create znode: %s data: %s", path, data ? data : "null");
         }
         else
         {
@@ -197,16 +201,33 @@ void ZKClient::Create(const char* path, const char* data, int datalen, int state
     }
     else
     {
-        // Node already exists (e.g., ephemeral node from a previous session
-        // that hasn't timed out yet). Update its data.
-        flag = zoo_set(m_zhandle, path, data, datalen, -1);
-        if (flag == ZOK)
+        // Node already exists — for sequential nodes, this shouldn't happen,
+        // but handle gracefully. For non-sequential, update data.
+        if (state & ZOO_SEQUENCE)
         {
-            LOG_INFO("Update znode data: %s", path);
+            // Sequential node path doesn't exist yet, force create
+            flag = zoo_create(m_zhandle, path, data, datalen, &ZOO_OPEN_ACL_UNSAFE,
+                              state, out_buf, out_len);
+            if (flag == ZOK)
+            {
+                LOG_INFO("SUCCESS: Create sequential znode: %s data: %s", path, data ? data : "null");
+            }
+            else
+            {
+                LOG_ERROR("Create sequential znode failed: %s, error code: %d", path, flag);
+            }
         }
         else
         {
-            LOG_ERROR("Update znode data failed: %s, error code: %d", path, flag);
+            flag = zoo_set(m_zhandle, path, data, datalen, -1);
+            if (flag == ZOK)
+            {
+                LOG_INFO("Update znode data: %s", path);
+            }
+            else
+            {
+                LOG_ERROR("Update znode data failed: %s, error code: %d", path, flag);
+            }
         }
     }
 }
@@ -233,4 +254,31 @@ std::string ZKClient::GetData(const char* path)
         LOG_INFO("SUCCESS: Get znode data, path: %s", path);
         return buffer;
     }
+}
+
+std::vector<std::string> ZKClient::GetChildren(const char* path)
+{
+    std::vector<std::string> children;
+    if (m_zhandle == nullptr)
+    {
+        LOG_ERROR("Zookeeper handle is null, cannot get children for path: %s", path);
+        return children;
+    }
+
+    struct String_vector str_vec;
+    int flag = zoo_get_children(m_zhandle, path, 0, &str_vec);
+    if (flag == ZOK)
+    {
+        for (int i = 0; i < str_vec.count; ++i)
+        {
+            children.push_back(str_vec.data[i]);
+        }
+        deallocate_String_vector(&str_vec);
+        LOG_INFO("SUCCESS: Get children of %s, count=%d", path, (int)children.size());
+    }
+    else
+    {
+        LOG_ERROR("Get children failed, path: %s error code: %d", path, flag);
+    }
+    return children;
 }

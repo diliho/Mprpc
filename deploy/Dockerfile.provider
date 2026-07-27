@@ -1,0 +1,54 @@
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    cmake build-essential git \
+    libboost-all-dev \
+    protobuf-compiler libprotobuf-dev \
+    libzookeeper-mt-dev \
+    libhiredis-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build muduo
+RUN git clone --depth 1 https://github.com/chenshuo/muduo.git /tmp/muduo \
+    && mkdir -p /tmp/muduo/build \
+    && cmake -S /tmp/muduo -B /tmp/muduo/build \
+       -DCMAKE_INSTALL_PREFIX=/usr/local \
+       -DMUDUO_BUILD_EXAMPLES=OFF \
+    && cmake --build /tmp/muduo/build -j$(nproc) \
+    && cmake --install /tmp/muduo/build \
+    && rm -rf /tmp/muduo
+
+# Copy project source
+COPY . /opt/mprpc
+WORKDIR /opt/mprpc
+
+# Generate protobuf and build
+RUN protoc --proto_path=src --cpp_out=src/include src/rpcheader.proto \
+    && cp src/include/rpcheader.pb.cc src/rpcheader.pb.cc \
+    && protoc --proto_path=example --cpp_out=example example/user.proto \
+    && protoc --proto_path=example --cpp_out=example example/friend.proto \
+    && mkdir -p build && cd build \
+    && cmake .. && make -j$(nproc) \
+    && cp ../bin/provider /usr/local/bin/provider
+
+# Runtime image
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    libboost-system1.74.0 \
+    libboost-thread1.74.0 \
+    libprotobuf23 \
+    libzookeeper-mt2 \
+    libhiredis0.14 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/provider /usr/local/bin/provider
+
+RUN ldconfig
+
+EXPOSE 8000 9091
+
+ENTRYPOINT ["/usr/local/bin/provider"]
+CMD ["-i", "/etc/mprpc/test.conf"]

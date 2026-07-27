@@ -72,11 +72,12 @@ void MprpcChannel::serviceWatcher(zhandle_t* zh, int type, int state,
                                    const char* path, void* watcherCtx)
 {
     if (!watcherCtx) return;
+    // Handle all ZK events that indicate service topology change
     if (type != ZOO_CREATED_EVENT && type != ZOO_DELETED_EVENT
-        && type != ZOO_CHANGED_EVENT) return;
+        && type != ZOO_CHANGED_EVENT && type != ZOO_CHILD_EVENT) return;
 
     MprpcChannel* channel = static_cast<MprpcChannel*>(watcherCtx);
-    LOG_INFO("ZK watcher triggered: type=%d, path=%s", type, path);
+    LOG_INFO("ZK watcher triggered: type=%d, state=%d, path=%s", type, state, path);
     channel->invalidateCache(path);
 }
 
@@ -98,24 +99,22 @@ void MprpcChannel::registerWatcher(const std::string& method_path)
     zhandle_t* zh = m_zkclient->getHandle();
     if (!zh || !m_zkclient->isConnected()) return;
 
-    struct Stat stat;
-    char buffer[64];
-    int bufferlen = sizeof(buffer);
-
-    // Try data watcher on existing node (watches change + deletion)
-    int rc = zoo_wget(zh, method_path.c_str(), serviceWatcher, this,
-                      buffer, &bufferlen, &stat);
+    // Register child watcher (watches child add/remove under method_path)
+    struct String_vector str_vec;
+    int rc = zoo_wget_children(zh, method_path.c_str(), serviceWatcher, this, &str_vec);
     if (rc == ZOK)
     {
+        deallocate_String_vector(&str_vec);
         std::lock_guard<std::mutex> lock(m_cache_mtx);
         m_watcher_registered[method_path] = true;
-        LOG_INFO("ZK data watcher registered for %s", method_path.c_str());
+        LOG_INFO("ZK child watcher registered for %s", method_path.c_str());
         return;
     }
 
     // Node doesn't exist — register existence watcher (watches creation)
     if (rc == ZNONODE)
     {
+        struct Stat stat;
         rc = zoo_wexists(zh, method_path.c_str(), serviceWatcher, this, &stat);
         if (rc == ZOK)
         {
@@ -134,6 +133,13 @@ void MprpcChannel::registerWatcher(const std::string& method_path)
 
 std::string MprpcChannel::discoverService(const std::string& method_path)
 {
+    // ── Direct address mode: bypass ZK entirely ──
+    if (!m_direct_addr.empty())
+    {
+        m_last_provider = m_direct_addr;
+        return m_direct_addr;
+    }
+
     // ── Check cache first (avoids ZK query on every call) ──
     {
         std::lock_guard<std::mutex> lock(m_cache_mtx);
@@ -145,17 +151,44 @@ std::string MprpcChannel::discoverService(const std::string& method_path)
             if (elapsed < CACHE_TTL_SEC)
             {
                 auto addr_it = m_addr_cache.find(method_path);
-                if (addr_it != m_addr_cache.end())
+                if (addr_it != m_addr_cache.end() && !addr_it->second.empty())
+                {
+                    m_last_provider = addr_it->second;
                     return addr_it->second;
+                }
             }
         }
     }
 
-    // ── Try ZK with retry ──
+    // ── Try ZK: list children for multi-provider support ──
     if (m_zk_available)
     {
         for (int i = 0; i < MAX_RETRY; ++i)
         {
+            std::vector<std::string> children = m_zkclient->GetChildren(method_path.c_str());
+            if (!children.empty())
+            {
+                // Pick a random child for basic load balancing
+                std::string chosen = children[rand() % children.size()];
+                std::string child_path = method_path + "/" + chosen;
+                std::string addr = m_zkclient->GetData(child_path.c_str());
+                if (!addr.empty())
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(m_cache_mtx);
+                        m_addr_cache[method_path] = addr;
+                        m_cache_timestamps[method_path] = std::chrono::steady_clock::now();
+                    }
+
+                    // Register ZK child watcher for real-time service awareness
+                    registerWatcher(method_path);
+
+                    m_last_provider = addr;
+                    return addr;
+                }
+            }
+
+            // Fallback: try direct GetData for backward compatibility with old single-writer registration
             std::string addr = m_zkclient->GetData(method_path.c_str());
             if (!addr.empty())
             {
@@ -164,17 +197,15 @@ std::string MprpcChannel::discoverService(const std::string& method_path)
                     m_addr_cache[method_path] = addr;
                     m_cache_timestamps[method_path] = std::chrono::steady_clock::now();
                 }
-
-                // Register ZK watcher for real-time service awareness
                 registerWatcher(method_path);
-
+                m_last_provider = addr;
                 return addr;
             }
 
             if (i < MAX_RETRY - 1)
             {
                 int backoff = (1000 << i) + (rand() % 500);
-                LOG_WARN("ZK GetData retry %d/%d in %dms", i + 1, MAX_RETRY, backoff);
+                LOG_WARN("ZK discovery retry %d/%d in %dms for %s", i + 1, MAX_RETRY, backoff, method_path.c_str());
                 usleep(backoff * 1000);
             }
         }
@@ -191,6 +222,7 @@ std::string MprpcChannel::discoverService(const std::string& method_path)
         if (it != m_addr_cache.end())
         {
             LOG_WARN("ZK unavailable, using cached address for %s", method_path.c_str());
+            m_last_provider = it->second;
             return it->second;
         }
     }

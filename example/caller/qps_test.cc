@@ -27,6 +27,8 @@ static bool g_show_blocked = false;   // -b: show blocked count
 static int g_algo = -1;               // -a: algorithm override (0-4), -1 = use config
 static int g_max_qps = -1;            // -t: max_qps override, -1 = use config
 static std::string g_csv_file;        // -o <file>: write CSV output
+static std::string g_direct_addr;     // -p ip:port: direct connect bypassing ZK
+static bool g_provider_dist = false;  // --provider-dist: show per-provider distribution
 
 // ─── Per-thread result ───
 struct ThreadResult {
@@ -73,9 +75,13 @@ static Stats compute(const RoundResult& r) {
 
 // ─── Single worker thread ───
 static ThreadResult worker(int id, int warmup, int duration_sec,
-                           const std::string& method) {
+                           const std::string& method,
+                           const std::string& direct_addr = "") {
     ThreadResult r;
     MprpcChannel channel;
+    if (!direct_addr.empty()) {
+        channel.setDirectAddress(direct_addr);
+    }
     fixbug::UserServiceRpc_Stub stub(&channel);
 
     fixbug::LoginRequest login_req;
@@ -152,6 +158,8 @@ static void print_header() {
               << "    warmup=" << g_warmup;
     if (g_algo >= 0) std::cout << "    algo=" << g_algo;
     if (g_max_qps > 0) std::cout << "    max_qps=" << g_max_qps;
+    if (!g_direct_addr.empty()) std::cout << "    direct=" << g_direct_addr;
+    if (g_provider_dist) std::cout << "    provider-dist";
     std::cout << std::endl;
     print_separator();
 }
@@ -227,7 +235,7 @@ static void run_single_round(int concurrency, std::vector<RoundResult>& rounds) 
 
     for (int i = 0; i < concurrency; i++) {
         threads.emplace_back([i, &results]() {
-            results[i] = worker(i, g_warmup, g_duration_sec, g_method);
+            results[i] = worker(i, g_warmup, g_duration_sec, g_method, g_direct_addr);
         });
     }
 
@@ -282,6 +290,10 @@ static void parse_args(int argc, char** argv) {
             g_max_qps = atoi(argv[++i]);
         else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
             g_csv_file = argv[++i];
+        else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
+            g_direct_addr = argv[++i];
+        else if (strcmp(argv[i], "--provider-dist") == 0)
+            g_provider_dist = true;
     }
 }
 
@@ -297,9 +309,10 @@ int main(int argc, char** argv) {
         } else if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "-d") == 0 ||
                    strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "-m") == 0 ||
                    strcmp(argv[i], "-a") == 0 || strcmp(argv[i], "-t") == 0 ||
-                   strcmp(argv[i], "-o") == 0) {
+                   strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "-p") == 0) {
             i++; // skip value
-        } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "-b") == 0) {
+        } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "-b") == 0 ||
+                   strcmp(argv[i], "--provider-dist") == 0) {
             // skip
         }
     }
@@ -329,6 +342,71 @@ int main(int argc, char** argv) {
     }
 
     std::vector<RoundResult> rounds;
+
+    // ── Provider distribution mode: benchmark each provider separately ──
+    if (g_provider_dist) {
+        std::vector<std::string> providers = {"127.0.0.1:8001", "127.0.0.1:8002", "127.0.0.1:8003"};
+        std::vector<std::string> labels = {"Provider-1", "Provider-2", "Provider-3"};
+
+        print_separator();
+        std::cout << "  Per-Provider Benchmark (direct connect, concurrency=" << g_concurrency.back() << ")" << std::endl;
+        print_separator('-');
+        std::cout << std::left
+                  << std::setw(14) << "Provider"
+                  << std::setw(12) << "QPS"
+                  << std::setw(10) << "Succ%"
+                  << std::setw(10) << "Avg(ms)"
+                  << std::setw(10) << "P99(ms)"
+                  << std::setw(10) << "Total"
+                  << std::endl;
+        print_separator('-');
+
+        for (size_t i = 0; i < providers.size(); i++) {
+            g_direct_addr = providers[i];
+            int c = g_concurrency.back();
+            RoundResult round;
+            round.concurrency = c;
+
+            std::vector<std::thread> threads;
+            std::vector<ThreadResult> results(c);
+            auto test_start = std::chrono::steady_clock::now();
+            for (int t = 0; t < c; t++) {
+                threads.emplace_back([t, &results]() {
+                    results[t] = worker(t, g_warmup, g_duration_sec, g_method, g_direct_addr);
+                });
+            }
+            for (auto& th : threads) th.join();
+            auto test_end = std::chrono::steady_clock::now();
+            round.duration_sec = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     test_end - test_start).count() / 1000.0;
+            for (auto& r : results) {
+                round.total_calls += r.calls;
+                round.total_errors += r.errors;
+                round.total_blocked += r.blocked;
+                round.all_us.insert(round.all_us.end(),
+                                    r.latencies_us.begin(), r.latencies_us.end());
+            }
+            std::sort(round.all_us.begin(), round.all_us.end());
+            Stats s = compute(round);
+
+            std::cout << std::left
+                      << std::setw(14) << labels[i]
+                      << std::setw(12) << std::fixed << std::setprecision(0) << s.qps
+                      << std::setw(10) << std::fixed << std::setprecision(1) << s.success_rate
+                      << std::setw(10) << std::fixed << std::setprecision(2) << s.avg_ms
+                      << std::setw(10) << std::fixed << std::setprecision(2) << s.p99_ms
+                      << std::setw(10) << round.total_calls
+                      << std::endl;
+        }
+
+        print_separator('-');
+        g_direct_addr = "";
+        std::cout << std::endl;
+
+        // Now run ZK-balanced test
+        std::cout << "  ZK Load Balanced (all providers, concurrency=" << g_concurrency.back() << ")" << std::endl;
+        print_separator('-');
+    }
 
     for (size_t ci = 0; ci < g_concurrency.size(); ci++) {
         int c = g_concurrency[ci];

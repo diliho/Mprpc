@@ -1,0 +1,38 @@
+groups:
+  - name: mprpc_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(mprpc_rpc_errors_total[5m])) / sum(rate(mprpc_rpc_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, sum(rate(mprpc_rpc_duration_seconds_bucket[5m])) by (le, service)) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P99 latency detected"
+          description: "P99 latency is {{ $value }}s for service {{ $labels.service }}"
+
+      - alert: QPSSuddenDrop
+        expr: sum(rate(mprpc_rpc_requests_total[5m])) < sum(rate(mprpc_rpc_requests_total[5m] offset 5m)) * 0.5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "QPS sudden drop detected"
+          description: "QPS dropped by more than 50%"
+
+      - alert: NodeDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node is down"
+          description: "Instance {{ $labels.instance }} is down"

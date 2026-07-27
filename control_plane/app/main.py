@@ -12,13 +12,18 @@ Usage:
 """
 
 import os
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from .models.database import init_db
 from .routers import cluster, config, governance, audit
 from .routers import monitor, trace, alert
 from .schemas.schemas import HealthResponse
+
+WEB_DIST = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
 
 _db_backend = "sqlite"
 if os.getenv("MPRPC_DB_URL", "").startswith("mysql"):
@@ -37,6 +42,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount Vue3 frontend static files
+if WEB_DIST.exists():
+    app.mount("/app", StaticFiles(directory=str(WEB_DIST), html=True), name="frontend")
 
 # ── Phase 2 Routers ───────────────────────────────────────────
 app.include_router(cluster.router)
@@ -68,6 +77,11 @@ def root():
         "docs": "/docs",
         "phase": 3,
     }
+
+
+@app.get("/metrics", tags=["system"])
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ class Node(Base):
     __tablename__ = "nodes"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    ip = Column(String(45), nullable=False, unique=True)
+    ip = Column(String(45), nullable=False)
     port = Column(Integer, nullable=False)
     hostname = Column(String(255), default="")
     status = Column(String(20), default="unknown")  # online/offline/healthy/unhealthy
@@ -40,7 +40,10 @@ class Node(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    __table_args__ = (Index("idx_node_status", "status"),)
+    __table_args__ = (
+        Index("idx_node_ip_port", "ip", "port", unique=True),
+        Index("idx_node_status", "status"),
+    )
 
 
 class Service(Base):

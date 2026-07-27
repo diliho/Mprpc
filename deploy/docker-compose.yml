@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    network_mode: host
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: mprpc_ee
+      MYSQL_USER: mprpc
+      MYSQL_PASSWORD: mprpc123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  zookeeper:
+    image: zookeeper:3.8
+    network_mode: host
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_4LW_COMMANDS_WHITE_LIST: "*"
+      ZOO_ADMIN_ENABLE_SERVER: "false"
+      ZOO_ADMINSERVER_ENABLED: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc 127.0.0.1 2181 | grep -q Mode"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Observability ───────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    network_mode: host
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./config/rules.yml:/etc/prometheus/rules.yml
+    depends_on:
+      - controlplane
+
+  grafana:
+    image: grafana/grafana:latest
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    depends_on:
+      - prometheus
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    network_mode: host
+    volumes:
+      - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+
+  # ── Control Plane ───────────────────────────────────────────
+  controlplane:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.controlplane
+    network_mode: host
+    environment:
+      MPRPC_DB_URL: "mysql+pymysql://mprpc:mprpc123@127.0.0.1:3306/mprpc_ee"
+      MPRPC_PROMETHEUS_URL: "http://127.0.0.1:9090"
+      MPRPC_GRAFANA_URL: "http://127.0.0.1:3000"
+      MPRPC_ALERTMANAGER_URL: "http://127.0.0.1:9093"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+
+  # ── RPC Providers (3 nodes) ────────────────────────────────
+  provider-1:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.provider
+    network_mode: host
+    volumes:
+      - ./config/provider1.conf:/etc/mprpc/test.conf
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  provider-2:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.provider
+    network_mode: host
+    volumes:
+      - ./config/provider2.conf:/etc/mprpc/test.conf
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  provider-3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.provider
+    network_mode: host
+    volumes:
+      - ./config/provider3.conf:/etc/mprpc/test.conf
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

@@ -24,15 +24,10 @@ static void handleSigInt(int)
     // delete them so the shutdown is visible to consumers immediately.
     if (zk.getHandle() && zk.isConnected())
     {
-        for (auto &sp : g_shutdown_provider->getServiceMap())
+        for (auto &znode_path : g_shutdown_provider->getRegisteredZnodes())
         {
-            std::string service_path = "/" + sp.first;
-            for (auto &mp : sp.second.m_methodMap)
-            {
-                std::string method_path = service_path + "/" + mp.first;
-                zoo_delete(zk.getHandle(), method_path.c_str(), -1);
-                LOG_INFO("Deleted ZK node: %s", method_path.c_str());
-            }
+            zoo_delete(zk.getHandle(), znode_path.c_str(), -1);
+            LOG_INFO("Deleted ZK instance node: %s", znode_path.c_str());
         }
     }
     g_shutdown_provider->getEventLoop().quit();
@@ -68,12 +63,23 @@ void RpcProvider::registerServicesToZK()
         for (auto &mp : sp.second.m_methodMap)
         {
             std::string method_path = service_path + "/" + mp.first;
+            m_zkclient.Create(method_path.c_str(), nullptr, 0);
+
+            std::string instance_prefix = method_path + "/inst_";
             char data[128] = {0};
             snprintf(data, sizeof(data), "%s:%d", m_ip.c_str(), m_port);
-            m_zkclient.Create(method_path.c_str(), data, strlen(data), ZOO_EPHEMERAL);
+            char actual_path[256] = {0};
+            m_zkclient.Create(instance_prefix.c_str(), data, strlen(data),
+                              ZOO_EPHEMERAL | ZOO_SEQUENCE,
+                              actual_path, sizeof(actual_path));
+            if (actual_path[0])
+            {
+                m_registered_znodes.push_back(actual_path);
+                LOG_INFO("Registered instance znode: %s -> %s", actual_path, data);
+            }
         }
     }
-    LOG_INFO("Services registered to ZK");
+    LOG_INFO("Services registered to ZK (%d instance znodes)", (int)m_registered_znodes.size());
 }
 
 void RpcProvider::Run()

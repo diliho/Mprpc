@@ -1,0 +1,22 @@
+FROM python:3.10-slim
+
+WORKDIR /opt/mprpc
+
+# Install dependencies
+COPY control_plane/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Copy application
+COPY control_plane/ /opt/mprpc/control_plane/
+COPY web/dist/ /opt/mprpc/web/dist/
+
+WORKDIR /opt/mprpc/control_plane
+
+EXPOSE 8080
+
+ENV MPRPC_DB_URL="mysql+pymysql://mprpc:mprpc123@mysql/mprpc_ee"
+ENV MPRPC_PROMETHEUS_URL="http://prometheus:9090"
+ENV MPRPC_GRAFANA_URL="http://grafana:3000"
+ENV MPRPC_ALERTMANAGER_URL="http://alertmanager:9093"
+
+CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

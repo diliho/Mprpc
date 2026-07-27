@@ -31,6 +31,7 @@ public:
     ZKClient& getZkClient() { return m_zkclient; }
     muduo::net::EventLoop& getEventLoop() { return m_eventloop; }
     std::unordered_map<std::string, ServiceInfo>& getServiceMap() { return m_serviceMap; }
+    std::vector<std::string>& getRegisteredZnodes() { return m_registered_znodes; }
     std::string getAddress() const { return m_ip + ":" + std::to_string(m_port); }
     MetricsCollector* getMetrics() { return m_metrics.get(); }
 
@@ -42,6 +43,7 @@ private:
     std::unique_ptr<muduo::net::TcpServer> m_server;
 
     std::unordered_map<std::string, ServiceInfo> m_serviceMap;
+    std::vector<std::string> m_registered_znodes;
 
     std::shared_ptr<RedisClient> m_redis;
     std::unique_ptr<RateLimiter> m_rate_limiter;

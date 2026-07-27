@@ -1,0 +1,9 @@
+.git
+build/
+bin/
+lib/
+log/
+web/node_modules/
+*.pyc
+__pycache__
+.env
