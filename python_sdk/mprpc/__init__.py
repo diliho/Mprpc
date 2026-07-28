@@ -1,38 +1,19 @@
-"""
-Mprpc Python SDK - High-performance C++ RPC framework bindings.
+"""Pure Python RPC channel implementing the Mprpc wire protocol.
 
-Usage:
-    from mprpc import init, RpcChannel, RpcConfig
-
-    # Initialize framework
-    init("test.conf")
-
-    # Make RPC calls
-    channel = RpcChannel()
-    response = channel.call("UserService", "Login", request_bytes)
+Wire format:
+    Request:  [4 bytes header_size (LE)] [RpcHeader proto] [request proto bytes]
+    Response: [4 bytes header_size (LE)] [RpcHeader proto] [response proto bytes]
 """
 
-from .mprpc_core import (
-    __version__,
-    init,
-    get_config,
-    RpcConfig,
-    RpcController,
-    ZKClient,
-)
-from .channel import RpcChannel, RpcError
-from .async_channel import AsyncRpcChannel
+from .config import RpcConfig
+from .channel import RpcChannel
+from .controller import RpcController
+from .error import RpcError
+from .zk_client import ZkClient
 from .metrics import MetricsCollector
 
+__version__ = "1.0.0"
 __all__ = [
-    "__version__",
-    "init",
-    "get_config",
-    "RpcConfig",
-    "RpcController",
-    "ZKClient",
-    "RpcChannel",
-    "AsyncRpcChannel",
-    "RpcError",
-    "MetricsCollector",
+    "RpcConfig", "RpcChannel", "RpcController", "RpcError",
+    "ZkClient", "MetricsCollector",
 ]

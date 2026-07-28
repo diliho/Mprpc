@@ -6,8 +6,8 @@ and can export to Prometheus text format.
 
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Dict, Optional
+from dataclasses import dataclass
+from typing import Dict
 
 
 @dataclass
@@ -37,8 +37,6 @@ class MetricsCollector:
     """Collects and exports RPC metrics in Prometheus text format.
 
     Usage:
-        from mprpc.metrics import MetricsCollector
-
         mc = MetricsCollector()
         start = time.monotonic()
         # ... do RPC call ...
@@ -51,13 +49,7 @@ class MetricsCollector:
         self._metrics: Dict[str, MethodMetrics] = defaultdict(MethodMetrics)
         self._start_time = time.time()
 
-    def record_call(
-        self,
-        service: str,
-        method: str,
-        latency_ms: float,
-        error: bool = False,
-    ):
+    def record_call(self, service: str, method: str, latency_ms: float, error: bool = False):
         """Record a single RPC call."""
         key = f"{service}/{method}"
         m = self._metrics[key]
