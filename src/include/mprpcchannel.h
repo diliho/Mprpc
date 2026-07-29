@@ -7,6 +7,10 @@
 #include "redisutil.h"
 #include "ratelimiter.h"
 #include "metricscollector.h"
+#include "balance/load_balancer.h"
+#include "net/connection_pool.h"
+#include "circuit_breaker.h"
+#include "registry/zk_registry.h"
 #include <unordered_map>
 #include <vector>
 #include <mutex>
@@ -29,39 +33,25 @@ public:
     std::string getLastProvider() const { return m_last_provider; }
 
 private:
-    std::shared_ptr<ZKClient> m_zkclient;
+    std::shared_ptr<mprpc::ZKRegistry> m_registry;
     bool m_zk_available;
     std::shared_ptr<RedisClient> m_redis;
     std::unique_ptr<MetricsCollector> m_metrics;
     std::unique_ptr<RateLimiter> m_client_rate_limiter;
 
-    class CircuitBreaker {
-    public:
-        CircuitBreaker(int threshold = 5, int timeout_sec = 30);
-        bool allowRequest();
-        void onSuccess();
-        void onFailure();
-    private:
-        enum class State { CLOSED, OPEN, HALF_OPEN };
-        int m_threshold;
-        int m_timeout_sec;
-        int m_failure_count;
-        State m_state;
-        std::chrono::steady_clock::time_point m_last_failure_time;
-    };
-
-    // key: "method_path" method-level breaker
-    std::unordered_map<std::string, CircuitBreaker> m_method_breakers;
+    // key: "method_path" method-level breaker (sliding window)
+    std::unordered_map<std::string, mprpc::SlidingWindowCircuitBreaker> m_method_breakers;
     std::mutex m_cb_mtx;
 
-    // Address cache: method_path → "ip:port" (avoids ZK query on every call)
-    std::unordered_map<std::string, std::string> m_addr_cache;
+    // Instance cache: method_path → list of available instances (avoids ZK query on every call)
+    std::unordered_map<std::string, std::vector<mprpc::ServiceInstance>> m_inst_cache;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_cache_timestamps;
     static constexpr int CACHE_TTL_SEC = 30;
     std::mutex m_cache_mtx;
 
-    // Persistent TCP connections: key="method_path@ip:port" → fd
-    std::unordered_map<std::string, int> m_persistent_fds;
+    // Connection pools: key="ip:port" → ConnectionPool
+    std::unordered_map<std::string, std::unique_ptr<mprpc::ConnectionPool>> m_conn_pools;
+    std::mutex m_pool_mtx;
 
     static constexpr int MAX_RETRY = 3;
 
@@ -72,11 +62,15 @@ private:
     void registerWatcher(const std::string& method_path);
     std::unordered_map<std::string, bool> m_watcher_registered;
 
-    std::string discoverService(const std::string& method_path);
+    std::string discoverService(const std::string& service_name,
+                                 const std::string& method_name);
     bool connectWithTimeout(int clientfd, const struct sockaddr_in& addr, int timeout_sec);
     void parseAndConnect(const std::string& host_data,
                          struct sockaddr_in& server_addr,
                          std::string& ip, uint16_t& port);
+
+    std::unique_ptr<mprpc::LoadBalancer> m_balancer;
+    std::mutex m_lb_mtx;
 
     std::string m_direct_addr;
     std::string m_last_provider;

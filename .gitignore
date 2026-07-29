@@ -27,3 +27,8 @@ web/dist/
 # 临时文件、日志、系统文件
 *.log
 .DS_Store
+
+lib/
+.opencode/
+autostart.sh
+src/src/

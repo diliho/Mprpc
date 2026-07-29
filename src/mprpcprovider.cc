@@ -17,16 +17,16 @@ static void handleSigInt(int)
     if (!g_shutdown_provider) return;
     LOG_INFO("Received SIGINT, shutting down gracefully...");
 
-    ZKClient& zk = g_shutdown_provider->getZkClient();
-    zk.setOnReconnectCallback(nullptr);
+    mprpc::ZKRegistry& reg = g_shutdown_provider->getRegistry();
+    reg.GetRawClient().setOnReconnectCallback(nullptr);
 
     // Ephemeral nodes are auto-deleted on disconnect, but explicitly
     // delete them so the shutdown is visible to consumers immediately.
-    if (zk.getHandle() && zk.isConnected())
+    if (reg.GetHandle() && reg.IsConnected())
     {
         for (auto &znode_path : g_shutdown_provider->getRegisteredZnodes())
         {
-            zoo_delete(zk.getHandle(), znode_path.c_str(), -1);
+            zoo_delete(reg.GetHandle(), znode_path.c_str(), -1);
             LOG_INFO("Deleted ZK instance node: %s", znode_path.c_str());
         }
     }
@@ -59,23 +59,20 @@ void RpcProvider::registerServicesToZK()
     for (auto &sp : m_serviceMap)
     {
         std::string service_path = "/" + sp.first;
-        m_zkclient.Create(service_path.c_str(), nullptr, 0);
+        m_registry.CreateNode(service_path, "", 0);
         for (auto &mp : sp.second.m_methodMap)
         {
             std::string method_path = service_path + "/" + mp.first;
-            m_zkclient.Create(method_path.c_str(), nullptr, 0);
+            m_registry.CreateNode(method_path, "", 0);
 
             std::string instance_prefix = method_path + "/inst_";
-            char data[128] = {0};
-            snprintf(data, sizeof(data), "%s:%d", m_ip.c_str(), m_port);
-            char actual_path[256] = {0};
-            m_zkclient.Create(instance_prefix.c_str(), data, strlen(data),
-                              ZOO_EPHEMERAL | ZOO_SEQUENCE,
-                              actual_path, sizeof(actual_path));
-            if (actual_path[0])
+            std::string data_str = m_ip + ":" + std::to_string(m_port);
+            std::string actual_path = m_registry.CreateNode(
+                instance_prefix, data_str, ZOO_EPHEMERAL | ZOO_SEQUENCE);
+            if (!actual_path.empty())
             {
                 m_registered_znodes.push_back(actual_path);
-                LOG_INFO("Registered instance znode: %s -> %s", actual_path, data);
+                LOG_INFO("Registered instance znode: %s -> %s", actual_path.c_str(), data_str.c_str());
             }
         }
     }
@@ -101,7 +98,7 @@ void RpcProvider::Run()
     LOG_INFO("RpcProvider: using %d IO threads (config=%s)", io_threads,
              threads_str.empty() ? "auto" : threads_str.c_str());
 
-    m_zkclient.Start();
+    m_registry.Start("", 0);
     registerServicesToZK();
 
     std::string redis_ip = MprpcApplication::GetConfig().Load("redisip");
@@ -150,7 +147,7 @@ void RpcProvider::Run()
         }
     }
 
-    m_zkclient.addReconnectCallback([this]() {
+    m_registry.AddReconnectCallback([this]() {
         LOG_INFO("ZK reconnected, re-registering services...");
         registerServicesToZK();
     });

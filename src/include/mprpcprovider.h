@@ -6,7 +6,7 @@
 #include <muduo/net/InetAddress.h>
 #include <muduo/net/TcpConnection.h>
 #include <unordered_map>
-#include "zookeeperutil.h"
+#include "registry/zk_registry.h"
 #include "mprpccontroller.h"
 #include "redisutil.h"
 #include "ratelimiter.h"
@@ -28,7 +28,7 @@ public:
                         google::protobuf::Message* response, 
                         MprpcController* controller);
 
-    ZKClient& getZkClient() { return m_zkclient; }
+    mprpc::ZKRegistry& getRegistry() { return m_registry; }
     muduo::net::EventLoop& getEventLoop() { return m_eventloop; }
     std::unordered_map<std::string, ServiceInfo>& getServiceMap() { return m_serviceMap; }
     std::vector<std::string>& getRegisteredZnodes() { return m_registered_znodes; }
@@ -37,7 +37,7 @@ public:
 
 private:
     muduo::net::EventLoop m_eventloop;
-    ZKClient m_zkclient;
+    mprpc::ZKRegistry m_registry;
     std::string m_ip;
     uint16_t m_port;
     std::unique_ptr<muduo::net::TcpServer> m_server;
