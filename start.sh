@@ -52,7 +52,7 @@ fi
 # ── Control Plane ──
 echo "Starting Control Plane..."
 cd "$PROJECT_DIR/control_plane"
-python -m app.main &
+python3 -m app.main &
 CP_PID=$!
 sleep 2
 
