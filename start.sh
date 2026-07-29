@@ -26,19 +26,27 @@ else
 fi
 
 # ── ZooKeeper ──
-if echo ruok | nc -w 2 127.0.0.1 2181 2>/dev/null | grep -q imok; then
+zk_alive() {
+    echo stat | nc -w 2 127.0.0.1 2181 2>/dev/null | grep -q "Mode:"
+}
+
+if zk_alive; then
     echo "[OK] ZooKeeper already running"
 else
     echo "Starting ZooKeeper via Docker..."
     docker rm -f zookeeper 2>/dev/null || true
     docker run -d --name zookeeper -p 2181:2181 zookeeper:3.7 >/dev/null
-    for i in $(seq 1 10); do
-        if echo ruok | nc -w 2 127.0.0.1 2181 2>/dev/null | grep -q imok; then
+    for i in $(seq 1 15); do
+        if zk_alive; then
             break
         fi
         sleep 1
     done
-    echo "[OK] ZooKeeper started"
+    if zk_alive; then
+        echo "[OK] ZooKeeper started"
+    else
+        echo "[WARN] ZooKeeper health check timed out, but might still be starting"
+    fi
 fi
 
 # ── Control Plane ──
