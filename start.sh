@@ -7,8 +7,9 @@ WEB_URL="http://localhost:8080/app"
 cleanup() {
     echo ""
     echo "Shutting down..."
-    [ -n "$CP_PID" ] && kill "$CP_PID" 2>/dev/null
-    [ -n "$PROVIDER_PID" ] && kill "$PROVIDER_PID" 2>/dev/null
+    kill $(ss -tlnp 2>/dev/null | grep ':8080' | grep -oP 'pid=\K[0-9]+') 2>/dev/null
+    pkill -f "mprpc.*provider" 2>/dev/null || true
+    wait 2>/dev/null
     exit 0
 }
 trap cleanup SIGINT SIGTERM
@@ -50,6 +51,11 @@ else
 fi
 
 # ── Control Plane ──
+OLD_PID=$(ss -tlnp 2>/dev/null | grep ':8080' | grep -oP 'pid=\K[0-9]+' | head -1)
+if [ -n "$OLD_PID" ]; then
+    echo "Killing old control plane (pid=$OLD_PID)..."
+    kill "$OLD_PID" 2>/dev/null && sleep 1
+fi
 echo "Starting Control Plane..."
 cd "$PROJECT_DIR/control_plane"
 python3 -m app.main &
