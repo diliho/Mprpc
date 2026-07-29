@@ -27,7 +27,7 @@ fi
 
 # ── ZooKeeper ──
 zk_alive() {
-    echo stat | nc -w 2 127.0.0.1 2181 2>/dev/null | grep -q "Mode:"
+    echo srvr | nc -w 2 127.0.0.1 2181 2>/dev/null | grep -q "Mode:"
 }
 
 if zk_alive; then
