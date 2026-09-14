@@ -32,3 +32,6 @@ lib/
 .opencode/
 autostart.sh
 src/src/
+
+# 项目计划文档
+Project_Plan/
